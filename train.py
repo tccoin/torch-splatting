@@ -8,10 +8,13 @@ from gaussian_splatting.utils.camera_utils import to_viewpoint_camera
 from gaussian_splatting.utils.point_utils import get_point_clouds
 from gaussian_splatting.gauss_model import GaussModel
 from gaussian_splatting.gauss_render import GaussRenderer
+import datetime
+import pathlib
 
 import contextlib
 
 from torch.profiler import profile, ProfilerActivity
+from torch.utils.tensorboard import SummaryWriter
 
 USE_GPU_PYTORCH = True
 USE_PROFILE = False
@@ -23,6 +26,12 @@ class GSSTrainer(Trainer):
         self.gaussRender = GaussRenderer(**kwargs.get('render_kwargs', {}))
         self.lambda_dssim = 0.2
         self.lambda_depth = 0.0
+        # create a file self.results_folder / f'eval.csv'
+        with open(self.results_folder / 'eval.csv', 'w') as f:
+            f.write('iter,loss,total,l1,ssim,depth,psnr\n')
+        self.tensorboard_writer = SummaryWriter(log_dir=self.results_folder)
+
+
     
     def on_train_step(self):
         ind = np.random.choice(len(self.data['camera']))
@@ -53,6 +62,15 @@ class GSSTrainer(Trainer):
         psnr = utils.img2psnr(out['render'], rgb)
         log_dict = {'total': total_loss,'l1':l1_loss, 'ssim': ssim_loss, 'depth': depth_loss, 'psnr': psnr}
 
+        with open(self.results_folder / 'eval.csv', 'a') as f:
+            f.write(f'{self.step},{total_loss},{l1_loss},{ssim_loss},{depth_loss},{psnr}\n')
+
+        self.tensorboard_writer.add_scalar('loss/total', total_loss, self.step)
+        self.tensorboard_writer.add_scalar('loss/l1', l1_loss, self.step)
+        self.tensorboard_writer.add_scalar('loss/ssim', ssim_loss, self.step)
+        self.tensorboard_writer.add_scalar('loss/depth', depth_loss, self.step)
+        self.tensorboard_writer.add_scalar('psnr', psnr, self.step)
+
         return total_loss, log_dict
 
     def on_evaluate_step(self, **kwargs):
@@ -77,7 +95,7 @@ class GSSTrainer(Trainer):
 
 if __name__ == "__main__":
     device = 'cuda'
-    folder = './B075X65R3X'
+    folder = './data/B075X65R3X'
     data = read_all(folder, resize_factor=0.5)
     data = {k: v.to(device) for k, v in data.items()}
     data['depth_range'] = torch.Tensor([[1,3]]*len(data['rgb'])).to(device)
@@ -93,6 +111,9 @@ if __name__ == "__main__":
     render_kwargs = {
         'white_bkgd': True,
     }
+    folder_name = datetime.datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
+    results_folder = pathlib.Path('result/'+folder_name)
+    results_folder.mkdir(parents=True, exist_ok=True)
 
     trainer = GSSTrainer(model=gaussModel, 
         data=data,
@@ -102,7 +123,7 @@ if __name__ == "__main__":
         train_lr=1e-3, 
         amp=False,
         fp16=False,
-        results_folder='result/test',
+        results_folder=results_folder,
         render_kwargs=render_kwargs,
     )
 

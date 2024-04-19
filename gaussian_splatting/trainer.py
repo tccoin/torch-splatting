@@ -44,7 +44,7 @@ class Trainer(object):
         i_image=1000,
         i_save=50000,
         split_batches=False,
-        amp=False,
+        amp=True,
         fp16=False,
         with_tracking=False,
         **kwargs,
