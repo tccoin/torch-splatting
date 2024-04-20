@@ -21,6 +21,28 @@ class SL1Loss(nn.Module):
 
         return torch.mean(loss)
 
+def rkhs_loss(prediction_tiles, gt):
+    gt_rgb = gt['rgb']
+    gt_depth = gt['depth']
+    gt_alpha = gt['alpha']
+    gt_mask = gt['mask']
+
+    loss = torch.zeros(3, device=prediction_tiles.device) # local map norm, training image norm, inner product
+
+    mean2d_tile = prediction_tiles['mean2d']
+    cov2d_tile = prediction_tiles['cov2d']
+    mean3d_tile = prediction_tiles['mean3d']
+    cov3d_tile = prediction_tiles['cov3d']
+    label_tile = prediction_tiles['label']
+
+    N = len(mean2d_tile)
+
+    for i in range(N):
+        for j in range(N):
+            pass #todo
+            # loss[0] += torch.exp(-torch.norm(mean2d_tile[i] - mean2d_tile[j], p=2) ** 2)
+            
+
 def l1_loss(prediction, gt):
     return torch.abs((prediction - gt)).mean()
 

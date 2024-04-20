@@ -57,7 +57,6 @@ class GSSTrainer(Trainer):
         l1_loss = loss_utils.l1_loss(out['render'], rgb)
         depth_loss = loss_utils.l1_loss(out['depth'][..., 0][mask], depth[mask])
         ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb)
-        rkhs_loss = loss_utils.rkhs_loss(out['tiles'], self.data)
 
         total_loss = (1-self.lambda_dssim) * l1_loss + self.lambda_dssim * ssim_loss + depth_loss * self.lambda_depth
         psnr = utils.img2psnr(out['render'], rgb)

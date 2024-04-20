@@ -21,12 +21,6 @@ class SL1Loss(nn.Module):
 
         return torch.mean(loss)
 
-def rkhs_loss(prediction_tils, gt):
-    gt_rgb = gt['rgb']
-    gt_depth = gt['depth']
-    gt_alpha = gt['alpha']
-    gt_mask = gt['mask']
-
 def l1_loss(prediction, gt):
     return torch.abs((prediction - gt)).mean()
 
