@@ -6,6 +6,7 @@ from simple_knn._C import distCUDA2
 from gaussian_splatting.utils.point_utils import PointCloud
 from gaussian_splatting.gauss_render import strip_symmetric, inverse_sigmoid, build_scaling_rotation
 from gaussian_splatting.utils.sh_utils import RGB2SH
+from icecream import ic
 
 class GaussModel(nn.Module):
     """
@@ -157,6 +158,10 @@ class GaussModelGlobalScale(GaussModel):
     def __init__(self, sh_degree : int=3, debug=False):
         super(GaussModelGlobalScale, self).__init__(sh_degree, debug)
 
+    @property
+    def get_scaling(self):
+        return self._scaling
+
     def create_from_pcd(self, pcd:PointCloud):
         """
             create the guassian model from a color point cloud
@@ -174,7 +179,9 @@ class GaussModelGlobalScale(GaussModel):
         features[:, 3:, 1:] = 0.0
 
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(points)).float().cuda()), 0.0000001)
-        scales = torch.log(torch.sqrt(dist2))[...,None] # initial scaling
+        # scales = torch.log(torch.sqrt(dist2))[...,None] # initial scaling
+        scales = torch.mean(dist2) # initial scaling
+        scales = torch.scalar_tensor(1.5, device="cuda")
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
         opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))

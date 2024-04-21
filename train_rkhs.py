@@ -1,13 +1,13 @@
 import torch
 import numpy as np
-import gaussian_splatting.utils as utils
-from gaussian_splatting.trainer import Trainer
-import gaussian_splatting.utils.loss_utils as loss_utils
-from gaussian_splatting.utils.data_utils import read_all
-from gaussian_splatting.utils.camera_utils import to_viewpoint_camera
-from gaussian_splatting.utils.point_utils import get_point_clouds
-from gaussian_splatting.gauss_model import GaussModel
-from gaussian_splatting.gauss_render import GaussRenderer
+import rkhs_splatting.utils as utils
+from rkhs_splatting.trainer import Trainer
+import rkhs_splatting.utils.loss_utils as loss_utils
+from rkhs_splatting.utils.data_utils import read_all
+from rkhs_splatting.utils.camera_utils import to_viewpoint_camera
+from rkhs_splatting.utils.point_utils import get_point_clouds
+from rkhs_splatting.gauss_model import GaussModel
+from rkhs_splatting.gauss_render import GaussRenderer
 import datetime
 import pathlib
 

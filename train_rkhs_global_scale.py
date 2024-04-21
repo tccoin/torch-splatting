@@ -1,13 +1,13 @@
 import torch
 import numpy as np
-import gaussian_splatting.utils as utils
-from gaussian_splatting.trainer import Trainer
-import gaussian_splatting.utils.loss_utils as loss_utils
-from gaussian_splatting.utils.data_utils import read_all
-from gaussian_splatting.utils.camera_utils import to_viewpoint_camera
-from gaussian_splatting.utils.point_utils import get_point_clouds
-from gaussian_splatting.gauss_model import GaussModel
-from gaussian_splatting.gauss_render import GaussRenderer
+import rkhs_splatting.utils as utils
+from rkhs_splatting.trainer import Trainer
+import rkhs_splatting.utils.loss_utils as loss_utils
+from rkhs_splatting.utils.data_utils import read_all
+from rkhs_splatting.utils.camera_utils import to_viewpoint_camera
+from rkhs_splatting.utils.point_utils import get_point_clouds
+from rkhs_splatting.gauss_model import GaussModelGlobalScale
+from rkhs_splatting.gauss_render import GaussRendererGlobalScale
 import datetime
 import pathlib
 
@@ -23,7 +23,7 @@ class GSSTrainer(Trainer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.data = kwargs.get('data')
-        self.gaussRender = GaussRenderer(**kwargs.get('render_kwargs', {}))
+        self.gaussRender = GaussRendererGlobalScale(**kwargs.get('render_kwargs', {}))
         self.lambda_dssim = 0.2
         self.lambda_depth = 0.0
         # create a file self.results_folder / f'eval.csv'
@@ -105,7 +105,7 @@ if __name__ == "__main__":
     raw_points = points.random_sample(2**14)
     # raw_points.write_ply(open('points.ply', 'wb'))
 
-    gaussModel = GaussModel(sh_degree=4, debug=False)
+    gaussModel = GaussModelGlobalScale(sh_degree=4, debug=False)
     gaussModel.create_from_pcd(pcd=raw_points)
     
     render_kwargs = {
