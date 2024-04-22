@@ -10,6 +10,7 @@ from rkhs_splatting.gauss_model import GaussModelGlobalScale
 from rkhs_splatting.gauss_render import GaussRendererGlobalScale
 import datetime
 import pathlib
+from icecream import ic
 
 import contextlib
 
@@ -38,6 +39,7 @@ class GSSTrainer(Trainer):
         camera = self.data['camera'][ind]
         rgb = self.data['rgb'][ind]
         depth = self.data['depth'][ind]
+        alpha = self.data['alpha'][ind]
         mask = (self.data['alpha'][ind] > 0.5)
         if USE_GPU_PYTORCH:
             camera = to_viewpoint_camera(camera)
@@ -54,11 +56,21 @@ class GSSTrainer(Trainer):
             print(prof.key_averages(group_by_stack_n=True).table(sort_by='self_cuda_time_total', row_limit=20))
 
 
+
         l1_loss = loss_utils.l1_loss(out['render'], rgb)
         depth_loss = loss_utils.l1_loss(out['depth'][..., 0][mask], depth[mask])
         ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb)
 
-        total_loss = (1-self.lambda_dssim) * l1_loss + self.lambda_dssim * ssim_loss + depth_loss * self.lambda_depth
+        # ic(self.data['camera'][ind].unsqueeze(0).shape)
+        # ic(depth.shape)
+        # ic(alpha.shape)
+        # ic(rgb.shape)
+
+        points = get_point_clouds(self.data['camera'][ind].unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+        rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], points, rgb, self.model.get_scaling)
+
+        # total_loss = (1-self.lambda_dssim) * l1_loss + self.lambda_dssim * ssim_loss + depth_loss * self.lambda_depth
+        total_loss = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
         psnr = utils.img2psnr(out['render'], rgb)
         log_dict = {'total': total_loss,'l1':l1_loss, 'ssim': ssim_loss, 'depth': depth_loss, 'psnr': psnr}
 
@@ -66,9 +78,14 @@ class GSSTrainer(Trainer):
             f.write(f'{self.step},{total_loss},{l1_loss},{ssim_loss},{depth_loss},{psnr}\n')
 
         self.tensorboard_writer.add_scalar('loss/total', total_loss, self.step)
+        self.tensorboard_writer.add_scalar('loss/rkhs_loss0', rkhs_loss[0], self.step)
+        self.tensorboard_writer.add_scalar('loss/rkhs_loss1', rkhs_loss[1], self.step)
+        self.tensorboard_writer.add_scalar('loss/rkhs_loss2', rkhs_loss[2], self.step)
         self.tensorboard_writer.add_scalar('loss/l1', l1_loss, self.step)
         self.tensorboard_writer.add_scalar('loss/ssim', ssim_loss, self.step)
         self.tensorboard_writer.add_scalar('loss/depth', depth_loss, self.step)
+        self.tensorboard_writer.add_scalar('params/scaling', self.model.get_scaling, self.step)
+        
         self.tensorboard_writer.add_scalar('psnr', psnr, self.step)
 
         return total_loss, log_dict
@@ -100,6 +117,11 @@ if __name__ == "__main__":
     data = {k: v.to(device) for k, v in data.items()}
     data['depth_range'] = torch.Tensor([[1,3]]*len(data['rgb'])).to(device)
 
+    # ic(data['camera'].shape)
+    # ic(data['depth'].shape)
+    # ic(data['alpha'].shape)
+    # ic(data['rgb'].shape)
+
 
     points = get_point_clouds(data['camera'], data['depth'], data['alpha'], data['rgb'])
     raw_points = points.random_sample(2**14)
@@ -111,7 +133,8 @@ if __name__ == "__main__":
     render_kwargs = {
         'white_bkgd': True,
     }
-    folder_name = datetime.datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
+    # folder_name = datetime.datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
+    folder_name = 'test'
     results_folder = pathlib.Path('result/'+folder_name)
     results_folder.mkdir(parents=True, exist_ok=True)
 
