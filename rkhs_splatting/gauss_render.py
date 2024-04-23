@@ -115,10 +115,6 @@ def build_covariance_2d(
 def build_scale_2d(
     means3d, scale3d, viewmatrix, fov_x, fov_y, focal_x, focal_y
 ):
-    # The following models the steps outlined by equations 29
-	# and 31 in "EWA Splatting" (Zwicker et al., 2002). 
-	# Additionally considers aspect / scaling of viewport.
-	# Transposes used to account for row-/column-major conventions.
     tan_fovx = math.tan(fov_x * 0.5)
     tan_fovy = math.tan(fov_y * 0.5)
     t = (means3d @ viewmatrix[:3,:3]) + viewmatrix[-1:,:3]
@@ -128,9 +124,9 @@ def build_scale_2d(
     ty = (t[..., 1] / t[..., 2]).clip(min=-tan_fovy*1.3, max=tan_fovy*1.3) * t[..., 2]
     tz = t[..., 2]
 
-    scale2d = torch.zeros(means3d.shape[0], 2).to(means3d)
-    scale2d[:,0] = scale3d * focal_x / tz.squeeze()
-    scale2d[:,1] = scale3d * focal_y / tz.squeeze()
+    scale2d_x = (scale3d * focal_x / tz).unsqueeze(-1)
+    scale2d_y = (scale3d * focal_y / tz).unsqueeze(-1)
+    scale2d = torch.cat((scale2d_x, scale2d_y), dim=1)
     
     return scale2d
 
@@ -354,7 +350,7 @@ class GaussRendererGlobalScale(nn.Module):
         pass
     
     def render(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
-        radii = torch.max(scale2d).repeat(means2d.shape[0])*3
+        radii = torch.max(scale2d, dim=-1).values*3
         rect = get_rect(means2d, radii, width=camera.image_width, height=camera.image_height)
         
         self.render_color = torch.ones(*self.pix_coord.shape[:2], 3).to('cuda')
@@ -395,7 +391,7 @@ class GaussRendererGlobalScale(nn.Module):
                 dx = (tile_coord[:,None,:] - sorted_means2D[None,:]) # B P 2
                 
                 
-                gauss_weight = torch.exp(-0.5 * torch.norm(dx, dim=-1)**2/sorted_scale2d_squared)
+                gauss_weight = torch.exp(-0.5 * dx.pow(2).sum(-1) /sorted_scale2d_squared)
 
                 
                 alpha = (gauss_weight[..., None] * sorted_opacity[None]).clip(max=0.99) # B P 1

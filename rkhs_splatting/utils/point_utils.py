@@ -3,7 +3,7 @@ import random
 from typing import BinaryIO, Dict, List, Optional, Union
 import numpy as np
 from  gaussian_splatting.utils.camera_utils import parse_camera
-
+from icecream import ic
 
 def get_rays_single_image(H, W, intrinsics, c2w, render_stride=1):
         """
@@ -60,6 +60,40 @@ def get_point_clouds(cameras, depths, alphas, rgbs=None):
 
     point_cloud = PointCloud(coords, channels)
     return point_cloud
+
+def get_point_clouds_tiles(cameras, depths, alphas, rgbs=None, tile_size=64):
+    """
+    depth map to point cloud
+    """
+    Hs, Ws, intrinsics, c2ws = parse_camera(cameras)
+    W, H = int(Ws[0].item()), int(Hs[0].item())
+    assert (depths.shape == alphas.shape)
+    h_tile, w_tile = H // tile_size, W // tile_size
+    pc_tiles = {v:{u:{} for u in range(w_tile)} for v in range(h_tile)}
+    rays_o, rays_d = get_rays_single_image(H=H, W=W, intrinsics=intrinsics, c2w=c2ws)
+    pts = rays_o + rays_d * depths.flatten(1).unsqueeze(-1)
+    rgbas = torch.cat([rgbs, alphas.unsqueeze(-1)], dim=-1)
+    mask = (alphas.flatten(1) == 1)
+    count = 0
+    for v in range(h_tile):
+        for u in range(w_tile):
+            tile = torch.zeros_like(alphas)
+            tile[0,v*tile_size:(v+1)*tile_size, u*tile_size:(u+1)*tile_size] = 1
+            mask_tile = mask & (tile.flatten(0)==1)
+            coords_tile = pts[mask_tile].cpu().numpy()
+            rgbas_tile = rgbas.flatten(1,-2)[mask_tile].cpu().numpy()
+            count += mask_tile.sum()
+            if rgbas_tile is not None:
+                channels = dict(
+                    R=rgbas_tile[..., 0],
+                    G=rgbas_tile[..., 1],
+                    B=rgbas_tile[..., 2],
+                    A=rgbas_tile[..., 3],
+                )
+            else:
+                channels = {}
+            pc_tiles[v][u] = PointCloud(coords_tile, channels)
+    return pc_tiles
 
 
 """

@@ -5,6 +5,16 @@ from torch.autograd import Variable
 from math import exp
 from icecream import ic
 
+# from torch.profiler import profile, ProfilerActivity
+
+# USE_PROFILE = False
+
+
+# if USE_PROFILE:
+#     prof = profile(activities=[ProfilerActivity.CUDA], with_stack=True)
+# else:
+#     prof = contextlib.nullcontext()
+
 class SL1Loss(nn.Module):
     def __init__(self, ohem=False, topk=0.6):
         super(SL1Loss, self).__init__()
@@ -22,69 +32,76 @@ class SL1Loss(nn.Module):
 
         return torch.mean(loss)
 
-pix_coord = torch.stack(torch.meshgrid(torch.arange(512), torch.arange(512), indexing='xy'), dim=-1).to('cuda')
 
 def rkhs_global_scale_loss(prediction_tiles, gt_points, gt_rgb, scale3d):
-    loss = torch.zeros(3, device=scale3d.device) # local map norm, training image norm, inner product
 
-    mean2d_tile = prediction_tiles['mean2d']
-    mean3d_tile = prediction_tiles['mean3d']
-    scale2d_tile = prediction_tiles['scale2d']
-    label_tile = prediction_tiles['label']
+    mean2d_tiles = prediction_tiles['mean2d']
+    mean3d_tiles = prediction_tiles['mean3d']
+    scale2d_tiles = prediction_tiles['scale2d']
+    label_tiles = prediction_tiles['label']
 
-    N = len(mean2d_tile)
-    M = len(mean2d_tile[0])
-    if type(mean2d_tile[0][0]) is dict:
+    N = len(mean2d_tiles)
+    M = len(mean2d_tiles[0])
+    if type(mean2d_tiles[0][0]) is dict:
         return loss
-    T = mean2d_tile[0][0].shape[0]
+    T = gt_rgb.shape[0]//N
 
-    gt_points = gt_points.random_sample(10)
-    gt_label_tile = torch.from_numpy(gt_points.select_channels(['R', 'G', 'B'])).to(scale3d.device)
-    gt_points_tile = torch.from_numpy(gt_points.coords).to(scale3d.device)
     scale3d_squared = scale3d**2
 
     import numpy as np
-    mean_tile_number = np.mean([scale2d_tile[v][u].shape[0] for v in range(N) for u in range(M)])
-    ic(mean_tile_number)
+    mean_tile_number = np.mean([scale2d_tiles[v][u].shape[0] for v in range(N) for u in range(M)])
 
+    # local map norm, training image norm, inner product
+    loss = [0, 0, 0]
+    init = False
     for v in range(N):
         for u in range(M):
-            # 2d
-            # tile_coord = pix_coord[T*v:T*(v+1), T*u:T*(u+1)].reshape(-1, 2) # T**2, 2
-            # scale2d_squared = torch.max(scale2d_tile[v][u], dim=-1)**2 # B
-            # loss0 = mean2d_tile[v][u].unsqueeze(1) - tile_coord.unsqueeze(0) # B, T**2, 2
-            # loss0 = -0.5*torch.norm(loss0, p=2, dim=2)**2 # B, T**2
-            # loss[0] += torch.exp(loss0/scale2d[0]).mean()
+            
+            B = mean2d_tiles[v][u][:10].shape[0]
+            if B == 0 and init:
+                continue
+            init = True
 
-            # 3d
-            # gt_points: T**2, 3
+            pc_tile = gt_points[v][u]
+            pc_tile = pc_tile.random_sample(10)
+            gt_label_tile = torch.from_numpy(pc_tile.select_channels(['R', 'G', 'B'])).to(scale3d.device)
+            gt_points_tile = torch.from_numpy(pc_tile.coords).to(scale3d.device)
+            P = gt_label_tile.shape[0]
 
-            # get_tile_data = lambda x: torch.from_numpy(x[T*v:T*(v+1), T*u:T*(u+1)]).to(scale3d.device)
-            # gt_label_tile = get_tile_data(gt_points.select_channels(['R', 'G', 'B'])) # T**2, 3, only color now
-            # gt_points_tile = get_tile_data(gt_points.coords) # T**2, 3
+            # ic(M, N, B, P, T)
 
-            rgb_loss0 = label_tile[v][u][0].unsqueeze(1) - label_tile[v][u][0].unsqueeze(0) # B, B, 3
-            rgb_loss0 = torch.norm(rgb_loss0, p=2, dim=2)**2 # B, B
-            loss0 = mean3d_tile[v][u].unsqueeze(1) - mean3d_tile[v][u].unsqueeze(0) # B, B, 3
-            loss0 = torch.exp(-0.5 * torch.norm(loss0, p=3, dim=2)**2 / scale3d_squared) # B, B
-            loss0 = rgb_loss0*loss0
+            gt_label_tile_unsq0 = gt_label_tile.unsqueeze(0)
+            gt_label_tile_unsq1 = gt_label_tile.unsqueeze(1)
+            gt_points_tile_unsq0 = gt_points_tile.unsqueeze(0)
+            gt_points_tile_unsq1 = gt_points_tile.unsqueeze(1)
 
-            rgb_loss1 = gt_label_tile.unsqueeze(1) - gt_label_tile.unsqueeze(0) # B, T**2, 3
-            rgb_loss1 = torch.norm(rgb_loss1, p=2, dim=2)**2 # B, T**2
-            loss1 = gt_points_tile.unsqueeze(1) - gt_points_tile.unsqueeze(0) # B, T**2, 3
-            loss1 = torch.exp(-0.5 * torch.norm(loss1, p=3, dim=2)**2 / scale3d_squared) # B, T**2
-            loss1 = rgb_loss1*loss1
+            label_tile = label_tiles[v][u][0][:10] # only rgb for now
+            label_tile_unsq0 = label_tile.unsqueeze(0)
+            label_tile_unsq1 = label_tile.unsqueeze(1)
+            mean3d_tile = mean3d_tiles[v][u][:10]
+            mean3d_tile_unsq0 = mean3d_tile.unsqueeze(0)
+            mean3d_tile_unsq1 = mean3d_tile.unsqueeze(1)
 
-            rgb_loss2 = label_tile[v][u][0].unsqueeze(1) - gt_label_tile.unsqueeze(0) # B, T**2, 3
-            rgb_loss2 = torch.norm(rgb_loss2, p=2, dim=2)**2 # B, T**2
-            loss2 = mean3d_tile[v][u].unsqueeze(1) - gt_points_tile.unsqueeze(0) # B, T**2, 3
-            loss2 = torch.exp(-0.5 * torch.norm(loss2, p=3, dim=2)**2 / scale3d_squared) # B, T**2
-            loss2 = rgb_loss2*loss2
+            # inner product between local map and current frame
+            label2 = (label_tile_unsq1 - gt_label_tile_unsq0).pow(2).sum(-1)
+            point2 = (-0.5 * (mean3d_tile_unsq1 - gt_points_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
+            loss2 = label2 * point2
 
-            loss[0] += loss0.mean()
-            loss[1] += loss1.mean()
-            loss[2] += loss2.mean()
+            # local map inner product
+            label0 = (label_tile_unsq1 - label_tile_unsq0).pow(2).sum(-1)
+            point0 = (-0.5 * (mean3d_tile_unsq1 - mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
+            loss0 = label0 * point0
 
+            # current frame inner product
+            label1 = (gt_label_tile_unsq1 - gt_label_tile_unsq0).pow(2).sum(-1)
+            point1 = (-0.5 * (gt_points_tile_unsq1 - gt_points_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
+            loss1 = label1 * point1
+
+            # ic(loss0.sum(), loss1.sum(), loss2.sum())
+
+            loss[0] = loss0.sum() + loss[0]
+            loss[1] = loss1.sum() + loss[1]
+            loss[2] = loss2.sum() + loss[2]
     return loss
 
 def l1_loss(prediction, gt):

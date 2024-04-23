@@ -5,7 +5,7 @@ from rkhs_splatting.trainer import Trainer
 import rkhs_splatting.utils.loss_utils as loss_utils
 from rkhs_splatting.utils.data_utils import read_all
 from rkhs_splatting.utils.camera_utils import to_viewpoint_camera
-from rkhs_splatting.utils.point_utils import get_point_clouds
+from rkhs_splatting.utils.point_utils import get_point_clouds, get_point_clouds_tiles
 from rkhs_splatting.gauss_model import GaussModelGlobalScale
 from rkhs_splatting.gauss_render import GaussRendererGlobalScale
 import datetime
@@ -14,6 +14,7 @@ from icecream import ic
 
 import contextlib
 
+from pytorch_memlab import LineProfiler
 from torch.profiler import profile, ProfilerActivity
 from torch.utils.tensorboard import SummaryWriter
 
@@ -66,8 +67,11 @@ class GSSTrainer(Trainer):
         # ic(alpha.shape)
         # ic(rgb.shape)
 
-        points = get_point_clouds(self.data['camera'][ind].unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+        points = get_point_clouds_tiles(self.data['camera'][ind].unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+
+
         rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], points, rgb, self.model.get_scaling)
+
 
         # total_loss = (1-self.lambda_dssim) * l1_loss + self.lambda_dssim * ssim_loss + depth_loss * self.lambda_depth
         total_loss = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
@@ -151,4 +155,24 @@ if __name__ == "__main__":
     )
 
     trainer.on_evaluate_step()
-    trainer.train()
+
+    open('result/rkhs_global_scale_loss.txt', 'w').write('')
+
+    # with torch.profiler.profile(
+    #         schedule=torch.profiler.schedule(wait=1, warmup=1, active=60, repeat=1),
+    #         on_trace_ready=torch.profiler.tensorboard_trace_handler('/home/junzhe/Projects/torch-splatting/result/rkhs_loss_trace'),
+    #         record_shapes=True,
+    #         profile_memory=True,
+    #         with_stack=True
+    # ) as prof:
+    # with LineProfiler(trainer.gaussRender.render) as lp:
+    with LineProfiler(trainer.gaussRender.render) as lp:
+        try:
+            trainer.train()
+        except torch.cuda.OutOfMemoryError as e:
+            print(e)
+            print('done')
+    lp.print_stats(
+        stream=open('result/rkhs_global_scale_loss.txt', 'a'),
+        columns=('active_bytes.all.allocated', 'active_bytes.all.freed','active_bytes.all.current','active_bytes.all.peak', 'reserved_bytes.all.current')
+    )

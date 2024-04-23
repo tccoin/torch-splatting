@@ -132,7 +132,7 @@ class Trainer(object):
     def on_evaluate_step(self):
         raise NotImplementedError('not implemeted')
 
-    def train(self):
+    def train(self, prof=None):
         accelerator = self.accelerator
         device = accelerator.device
         
@@ -145,6 +145,10 @@ class Trainer(object):
                 for _ in range(self.gradient_accumulate_every):
 
                     with self.accelerator.autocast():
+
+                        if prof is not None:
+                            prof.step()
+
                         loss, log_dict = self.on_train_step()
                         loss = loss / self.gradient_accumulate_every
                         total_loss += loss
