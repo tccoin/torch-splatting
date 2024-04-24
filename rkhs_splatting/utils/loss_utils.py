@@ -42,8 +42,6 @@ def rkhs_global_scale_loss(prediction_tiles, gt_points, gt_rgb, scale3d):
 
     N = len(mean2d_tiles)
     M = len(mean2d_tiles[0])
-    if type(mean2d_tiles[0][0]) is dict:
-        return loss
     T = gt_rgb.shape[0]//N
 
     scale3d_squared = scale3d**2
@@ -57,14 +55,14 @@ def rkhs_global_scale_loss(prediction_tiles, gt_points, gt_rgb, scale3d):
     for v in range(N):
         for u in range(M):
             
-            B = mean2d_tiles[v][u][:10].shape[0]
+            B = mean2d_tiles[v][u].shape[0]
             if B == 0 and init:
                 continue
             init = True
 
             pc_tile = gt_points[v][u]
-            pc_tile = pc_tile.random_sample(10)
-            gt_label_tile = torch.from_numpy(pc_tile.select_channels(['R', 'G', 'B'])).to(scale3d.device)
+            # pc_tile = pc_tile.random_sample(300)
+            gt_label_tile = torch.from_numpy(pc_tile.select_channels(['R', 'G', 'B'])/255.0).to(scale3d.device)
             gt_points_tile = torch.from_numpy(pc_tile.coords).to(scale3d.device)
             P = gt_label_tile.shape[0]
 
@@ -75,25 +73,29 @@ def rkhs_global_scale_loss(prediction_tiles, gt_points, gt_rgb, scale3d):
             gt_points_tile_unsq0 = gt_points_tile.unsqueeze(0)
             gt_points_tile_unsq1 = gt_points_tile.unsqueeze(1)
 
-            label_tile = label_tiles[v][u][0][:10] # only rgb for now
+            label_tile = label_tiles[v][u][0] # only rgb for now
             label_tile_unsq0 = label_tile.unsqueeze(0)
             label_tile_unsq1 = label_tile.unsqueeze(1)
-            mean3d_tile = mean3d_tiles[v][u][:10]
+            mean3d_tile = mean3d_tiles[v][u]
             mean3d_tile_unsq0 = mean3d_tile.unsqueeze(0)
             mean3d_tile_unsq1 = mean3d_tile.unsqueeze(1)
 
+            # label_tile = label_tile[:600]
+            # mean3d_tile = mean3d_tile[:600]
+
             # inner product between local map and current frame
-            label2 = (label_tile_unsq1 - gt_label_tile_unsq0).pow(2).sum(-1)
+            label2 = (-0.5 * (label_tile_unsq1 - gt_label_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
             point2 = (-0.5 * (mean3d_tile_unsq1 - gt_points_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
+            # point2 = (-0.5 * (mean3d_tile_unsq1 - gt_points_tile_unsq0).abs().pow(3).sum(-1).pow(2/3) / scale3d_squared).exp()
             loss2 = label2 * point2
 
             # local map inner product
-            label0 = (label_tile_unsq1 - label_tile_unsq0).pow(2).sum(-1)
+            label0 = (-0.5 * (label_tile_unsq1 - label_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
             point0 = (-0.5 * (mean3d_tile_unsq1 - mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
             loss0 = label0 * point0
 
             # current frame inner product
-            label1 = (gt_label_tile_unsq1 - gt_label_tile_unsq0).pow(2).sum(-1)
+            label1 = (-0.5 * (gt_label_tile_unsq1 - gt_label_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
             point1 = (-0.5 * (gt_points_tile_unsq1 - gt_points_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
             loss1 = label1 * point1
 

@@ -464,6 +464,8 @@ class GaussRendererGlobalScale(nn.Module):
             mean_coord_y = ((mean_ndc[..., 1] + 1) * camera.image_height - 1.0) * 0.5
             means2d = torch.stack([mean_coord_x, mean_coord_y], dim=-1)
 
+            # ic(scale2d.shape, means2d.shape)
+
         with prof("render"):
             if mode=='render':
                 rets = self.render(

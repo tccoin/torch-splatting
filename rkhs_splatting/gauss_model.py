@@ -158,6 +158,10 @@ class GaussModelGlobalScale(GaussModel):
     def __init__(self, sh_degree : int=3, debug=False):
         super(GaussModelGlobalScale, self).__init__(sh_degree, debug)
 
+    def set_scaling(self, scaling):
+        scaling.requires_grad_(True)
+        self._scaling = nn.Parameter(scaling)
+
     @property
     def get_scaling(self):
         return self._scaling
@@ -181,7 +185,7 @@ class GaussModelGlobalScale(GaussModel):
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(points)).float().cuda()), 0.0000001)
         # scales = torch.log(torch.sqrt(dist2))[...,None] # initial scaling
         # scales = torch.sqrt(torch.mean(dist2)) # initial scaling
-        scales = torch.scalar_tensor(0.01, device="cuda")
+        scales = torch.scalar_tensor(0.017, device="cuda")
         ic(scales)
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
@@ -195,7 +199,8 @@ class GaussModelGlobalScale(GaussModel):
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
         self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
         self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
-        self._scaling = nn.Parameter(scales.requires_grad_(True))
+        # self._scaling = nn.Parameter(scales.requires_grad_(True))
+        self._scaling = scales
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")

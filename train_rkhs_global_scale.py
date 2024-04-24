@@ -51,6 +51,9 @@ class GSSTrainer(Trainer):
             prof = contextlib.nullcontext()
 
         with prof:
+            # max_scaling = torch.scalar_tensor(0.02, device="cuda")
+            # if self.model.get_scaling > max_scaling:
+            #     self.model.set_scaling(max_scaling)
             out = self.gaussRender(pc=self.model, camera=camera)
 
         if USE_PROFILE:
@@ -75,6 +78,7 @@ class GSSTrainer(Trainer):
 
         # total_loss = (1-self.lambda_dssim) * l1_loss + self.lambda_dssim * ssim_loss + depth_loss * self.lambda_depth
         total_loss = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
+        # total_loss = -rkhs_loss[2]
         psnr = utils.img2psnr(out['render'], rgb)
         log_dict = {'total': total_loss,'l1':l1_loss, 'ssim': ssim_loss, 'depth': depth_loss, 'psnr': psnr}
 
@@ -147,7 +151,7 @@ if __name__ == "__main__":
         train_batch_size=1, 
         train_num_steps=25000,
         i_image =100,
-        train_lr=1e-3, 
+        train_lr=1e-5,
         amp=False,
         fp16=False,
         results_folder=results_folder,
