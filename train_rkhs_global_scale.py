@@ -5,9 +5,9 @@ from rkhs_splatting.trainer import Trainer
 import rkhs_splatting.utils.loss_utils as loss_utils
 from rkhs_splatting.utils.data_utils import read_all
 from rkhs_splatting.utils.camera_utils import to_viewpoint_camera
-from rkhs_splatting.utils.point_utils import get_point_clouds, get_point_clouds_tiles
-from rkhs_splatting.gauss_model import GaussModelGlobalScale
-from rkhs_splatting.gauss_render import GaussRendererGlobalScale
+from rkhs_splatting.utils.point_utils import get_point_clouds
+from rkhs_splatting.rkhs_model_global_scale import RKHSModelGlobalScale
+from rkhs_splatting.rkhs_render_global_scale import RKHSRendererGlobalScale
 import datetime
 import pathlib
 from icecream import ic
@@ -27,7 +27,7 @@ class GSSTrainer(Trainer):
         self.data = kwargs.get('data')
         self.input_model = kwargs.get('input_model')
         self.input_model.set_scaling(self.model.get_scaling)
-        self.gauss_render = GaussRendererGlobalScale(**kwargs.get('render_kwargs', {}))
+        self.gauss_render = RKHSRendererGlobalScale(**kwargs.get('render_kwargs', {}))
         self.lambda_dssim = 0.2
         self.lambda_depth = 0.0
         # create a file self.results_folder / f'eval.csv'
@@ -168,15 +168,15 @@ if __name__ == "__main__":
     # raw_points = points.generate_random_color(2**14)
     # raw_points.write_ply(open('points.ply', 'wb'))
 
-    gauss_model = GaussModelGlobalScale(sh_degree=4, debug=False, trainable=True)
+    gauss_model = RKHSModelGlobalScale(sh_degree=4, debug=False, trainable=True)
     gauss_model.create_from_pcd(pcd=raw_points, initial_scaling=0.010)
-    input_model = GaussModelGlobalScale(sh_degree=4, debug=False, trainable=False)
+    input_model = RKHSModelGlobalScale(sh_degree=4, debug=False, trainable=False)
     
     render_kwargs = {
         'white_bkgd': True
     }
     folder_name = datetime.datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
-    folder_name = 'geo_010'
+    # folder_name = 'geo_010'
     results_folder = pathlib.Path('result/'+folder_name)
     # if results_folder.exists():
     #     import shutil
