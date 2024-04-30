@@ -25,7 +25,9 @@ class GSSTrainer(Trainer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.data = kwargs.get('data')
-        self.gaussRender = GaussRendererGlobalScale(**kwargs.get('render_kwargs', {}))
+        self.input_model = kwargs.get('input_model')
+        self.input_model.set_scaling(self.model.get_scaling)
+        self.gauss_render = GaussRendererGlobalScale(**kwargs.get('render_kwargs', {}))
         self.lambda_dssim = 0.2
         self.lambda_depth = 0.0
         # create a file self.results_folder / f'eval.csv'
@@ -51,15 +53,16 @@ class GSSTrainer(Trainer):
             prof = contextlib.nullcontext()
 
         with prof:
-            # max_scaling = torch.scalar_tensor(0.02, device="cuda")
-            # if self.model.get_scaling > max_scaling:
-            #     self.model.set_scaling(max_scaling)
-            out = self.gaussRender(pc=self.model, camera=camera)
+            # min_scaling = torch.scalar_tensor(0.010, device="cuda")
+            # if self.model.get_scaling < min_scaling:
+            #     self.model.set_scaling(min_scaling)
+            out = self.gauss_render(pc=self.model, camera=camera)
 
         if USE_PROFILE:
             print(prof.key_averages(group_by_stack_n=True).table(sort_by='self_cuda_time_total', row_limit=20))
 
-
+        # if self.step==2:
+        #     quit()
 
         l1_loss = loss_utils.l1_loss(out['render'], rgb)
         depth_loss = loss_utils.l1_loss(out['depth'][..., 0][mask], depth[mask])
@@ -70,15 +73,20 @@ class GSSTrainer(Trainer):
         # ic(alpha.shape)
         # ic(rgb.shape)
 
-        points = get_point_clouds_tiles(self.data['camera'][ind].unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+        # points = get_point_clouds_tiles(self.data['camera'][ind].unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+        points = get_point_clouds(self.data['camera'][ind].unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+        self.input_model.set_scaling(self.model.get_scaling)
+        self.input_model.create_from_pcd(points, initial_scaling=self.model.get_scaling)
+        input_frame = self.gauss_render(pc=self.input_model, camera=camera, mode='train')
 
-
-        rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], points, rgb, self.model.get_scaling)
-
+        use_geometry = True
+        use_rgb = True
+        rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=use_geometry, use_rgb=use_rgb)
+        rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
 
         # total_loss = (1-self.lambda_dssim) * l1_loss + self.lambda_dssim * ssim_loss + depth_loss * self.lambda_depth
-        total_loss = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
-        # total_loss = -rkhs_loss[2]
+        # total_loss = rkhs_loss_total + torch.linalg.norm(self.model.get_scaling-0.010)*1e6
+        total_loss = rkhs_loss_total
         psnr = utils.img2psnr(out['render'], rgb)
         log_dict = {'total': total_loss,'l1':l1_loss, 'ssim': ssim_loss, 'depth': depth_loss, 'psnr': psnr}
 
@@ -86,15 +94,15 @@ class GSSTrainer(Trainer):
             f.write(f'{self.step},{total_loss},{l1_loss},{ssim_loss},{depth_loss},{psnr}\n')
 
         self.tensorboard_writer.add_scalar('loss/total', total_loss, self.step)
-        self.tensorboard_writer.add_scalar('loss/rkhs_loss0', rkhs_loss[0], self.step)
-        self.tensorboard_writer.add_scalar('loss/rkhs_loss1', rkhs_loss[1], self.step)
-        self.tensorboard_writer.add_scalar('loss/rkhs_loss2', rkhs_loss[2], self.step)
+        self.tensorboard_writer.add_scalar('loss/rkhs', rkhs_loss_total, self.step)
         self.tensorboard_writer.add_scalar('loss/l1', l1_loss, self.step)
         self.tensorboard_writer.add_scalar('loss/ssim', ssim_loss, self.step)
         self.tensorboard_writer.add_scalar('loss/depth', depth_loss, self.step)
+        self.tensorboard_writer.add_scalar('loss/psnr', psnr, self.step)
+        self.tensorboard_writer.add_scalar('rkhs/local_map', rkhs_loss[0], self.step)
+        self.tensorboard_writer.add_scalar('rkhs/train_frame', rkhs_loss[1], self.step)
+        self.tensorboard_writer.add_scalar('rkhs/inner_product', rkhs_loss[2], self.step)
         self.tensorboard_writer.add_scalar('params/scaling', self.model.get_scaling, self.step)
-        
-        self.tensorboard_writer.add_scalar('psnr', psnr, self.step)
 
         return total_loss, log_dict
 
@@ -106,53 +114,85 @@ class GSSTrainer(Trainer):
             camera = to_viewpoint_camera(camera)
 
         rgb = self.data['rgb'][ind].detach().cpu().numpy()
-        out = self.gaussRender(pc=self.model, camera=camera)
+        out = self.gauss_render(pc=self.model, camera=camera)
         rgb_pd = out['render'].detach().cpu().numpy()
         depth_pd = out['depth'].detach().cpu().numpy()[..., 0]
         depth = self.data['depth'][ind].detach().cpu().numpy()
+        mask = (self.data['alpha'][ind] < 0.5).detach().cpu().numpy()
+        depth[mask] = 0 # set depth for empty area
         depth = np.concatenate([depth, depth_pd], axis=1)
-        depth = (1 - depth / depth.max())
-        depth = plt.get_cmap('jet')(depth)[..., :3]
+        ic(depth[:,:256].min(), depth[:,:256].max())
+        ic(depth[:,256:].min(), depth[:,256:].max())
+        ic(depth[0,0], depth[0, 256])
+        depth = depth / depth.max()
+        depth = plt.get_cmap('Greys')(depth)[..., :3]
+
+        # draw grid on rgb_pd
+        # for i in range(0, rgb_pd.shape[1], 64):
+        #     rgb_pd[:, i] = 0
+        # for i in range(0, rgb_pd.shape[0], 64):
+        #     rgb_pd[i] = 0
+
         image = np.concatenate([rgb, rgb_pd], axis=1)
         image = np.concatenate([image, depth], axis=0)
         utils.imwrite(str(self.results_folder / f'image-{self.step}.png'), image)
+        utils.imwrite(str(self.results_folder / f'image-latest.png'), image)
+
+        if self.step == 0:
+            utils.imwrite(str(self.results_folder / f'image-gt-rgbd.png'), image[:,:256])
+            utils.imwrite(str(self.results_folder / f'image-initial-rgbd.png'), image[:,256:])
+        utils.imwrite(str(self.results_folder / f'image-latest-rgbd.png'), image[:,256:])
 
 
 if __name__ == "__main__":
     device = 'cuda'
+    torch.cuda.set_device(1)
     folder = './data/B075X65R3X'
     data = read_all(folder, resize_factor=0.5)
     data = {k: v.to(device) for k, v in data.items()}
     data['depth_range'] = torch.Tensor([[1,3]]*len(data['rgb'])).to(device)
 
+
+    # # use only one training image
+    for key,value in data.items():
+        data[key] = value[0:1]
+
     # ic(data['camera'].shape)
     # ic(data['depth'].shape)
     # ic(data['alpha'].shape)
-    # ic(data['rgb'].shape)
 
 
     points = get_point_clouds(data['camera'], data['depth'], data['alpha'], data['rgb'])
-    raw_points = points.random_sample(2**14)
+    # raw_points = points.random_sample(2**14)
+    raw_points = points.generate_random_noise(2**14)
+    # raw_points = points.generate_random_color(2**14)
     # raw_points.write_ply(open('points.ply', 'wb'))
 
-    gaussModel = GaussModelGlobalScale(sh_degree=4, debug=False)
-    gaussModel.create_from_pcd(pcd=raw_points)
+    gauss_model = GaussModelGlobalScale(sh_degree=4, debug=False, trainable=True)
+    gauss_model.create_from_pcd(pcd=raw_points, initial_scaling=0.010)
+    input_model = GaussModelGlobalScale(sh_degree=4, debug=False, trainable=False)
     
     render_kwargs = {
-        'white_bkgd': True,
+        'white_bkgd': True
     }
-    # folder_name = datetime.datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
-    folder_name = 'test'
+    folder_name = datetime.datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
+    folder_name = 'geo_010'
     results_folder = pathlib.Path('result/'+folder_name)
+    # if results_folder.exists():
+    #     import shutil
+    #     shutil.rmtree(results_folder)
     results_folder.mkdir(parents=True, exist_ok=True)
 
-    trainer = GSSTrainer(model=gaussModel, 
+
+    trainer = GSSTrainer(
+        model=gauss_model,
+        input_model=input_model,
         data=data,
         train_batch_size=1, 
         train_num_steps=25000,
-        i_image =100,
-        train_lr=1e-5,
-        amp=False,
+        i_image =50,
+        train_lr=1e-2,#3e-3
+        amp=True,
         fp16=False,
         results_folder=results_folder,
         render_kwargs=render_kwargs,
@@ -169,8 +209,8 @@ if __name__ == "__main__":
     #         profile_memory=True,
     #         with_stack=True
     # ) as prof:
-    # with LineProfiler(trainer.gaussRender.render) as lp:
-    with LineProfiler(trainer.gaussRender.render) as lp:
+    # with LineProfiler(trainer.gauss_render.render) as lp:
+    with LineProfiler(trainer.gauss_render.render) as lp:
         try:
             trainer.train()
         except torch.cuda.OutOfMemoryError as e:

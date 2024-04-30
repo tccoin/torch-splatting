@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
 
-  slam:
+  torch_splatting:
     image: tccoin/torch_splatting:latest
     container_name: torch_splatting
     network_mode: host
@@ -12,7 +12,7 @@ services:
       - "NVIDIA_DRIVER_CAPABILITIES=all"
       - "TERM=xterm-256color"
       - "XAUTHORITY"
-    working_dir: "/home/${USER}/projects/NeRF-SLAM/"
+    working_dir: "/home/${USER}/projects/torch-splatting/"
     privileged: true
     devices:
       - /dev/nvidia0
@@ -25,7 +25,7 @@ services:
       - $HOME/.Xauthority:/home/${USER}/.Xauthority:rw
       - .zshrc:/home/${USER}/.zshrc:rw
       - .zsh_history:/home/${USER}/.zsh_history:rw
-      - /home/$USER/Projects/NeRF-SLAM:/home/${USER}/projects/NeRF-SLAM/
+      - /home/$USER/Projects/torch-splatting:/home/${USER}/projects/torch-splatting/
       - /media/sdg1/:/home/${USER}/dataset/
     ulimits:
       nofile:

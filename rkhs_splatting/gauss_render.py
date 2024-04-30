@@ -132,6 +132,14 @@ def build_scale_2d(
 
 
 def projection_ndc(points, viewmatrix, projmatrix):
+    """
+    @params points: 3d points
+    @params viewmatrix: camera pose
+    @params projmatrix: projection matrix
+    @return p_proj: projected 2d points
+    @return p_view: view space 3d points
+    @return in_mask: mask of points whose z > 0.2
+    """
     points_o = homogeneous(points) # object space
     points_h = points_o @ viewmatrix @ projmatrix # screen space # RHS
     p_w = 1.0 / (points_h[..., -1:] + 0.000001)
@@ -248,7 +256,7 @@ class GaussRenderer(nn.Module):
                 self.cov3d_tile[v//TILE_SIZE][u//TILE_SIZE] = cov3d[in_mask][index]
                 self.mean2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_means2D
                 self.cov2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_cov2d
-                self.label_tile[v//TILE_SIZE][u//TILE_SIZE] = [sorted_color, tile_depth, acc_alpha]
+                self.label_tile[v//TILE_SIZE][u//TILE_SIZE] = [sorted_color, sorted_depths, sorted_opacity]
 
         tile_data = {
             "mean2d": self.mean2d_tile,
@@ -339,15 +347,54 @@ class GaussRendererGlobalScale(nn.Module):
         self.pix_coord = torch.stack(torch.meshgrid(torch.arange(256), torch.arange(256), indexing='xy'), dim=-1).to('cuda')
         
     
-    def build_color(self, means3d, shs, camera):
-        rays_o = camera.camera_center
-        rays_d = means3d - rays_o
-        color = eval_sh(self.active_sh_degree, shs.permute(0,2,1), rays_d)
-        color = (color + 0.5).clip(min=0.0)
-        return color
-    
-    def train(self, camera, means2d, cov2d, means3d, cov3d, color, opacity, depths):
-        pass
+    def train(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
+        radii = torch.max(scale2d, dim=-1).values*3
+        rect = get_rect(means2d, radii, width=camera.image_width, height=camera.image_height)
+
+        TILE_SIZE = 64
+
+        h_tile = camera.image_height//TILE_SIZE
+        w_tile = camera.image_width//TILE_SIZE
+
+        empty1d = torch.empty(0,1,device='cuda')
+        empty2d = torch.empty(0,2,device='cuda')
+        empty3d = torch.empty(0,3,device='cuda')
+        self.mean2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
+        self.scale2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
+        self.mean3d_tile = {v:{u:empty3d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
+        self.label_tile = {v:{u:[empty3d,empty1d,empty1d] for u in range(w_tile)} for v in range(h_tile)} # h,w,n,5 (3 for RGB, 1 for depth, 1 for opacity)
+
+        for v in range(0, camera.image_height, TILE_SIZE):
+            for u in range(0, camera.image_width, TILE_SIZE):
+                # check if the rectangle penetrate the tile
+                over_tl = rect[0][..., 0].clip(min=u), rect[0][..., 1].clip(min=v)
+                over_br = rect[1][..., 0].clip(max=u+TILE_SIZE-1), rect[1][..., 1].clip(max=v+TILE_SIZE-1)
+                in_mask = (over_br[0] > over_tl[0]) & (over_br[1] > over_tl[1]) # 3D gaussian in the tile 
+                
+                if not in_mask.sum() > 0:
+                    continue
+
+                sorted_depths, index = torch.sort(depths[in_mask])
+                sorted_means2D = means2d[in_mask][index]
+                sorted_scale2d = scale2d[in_mask][index] # P 2
+                sorted_opacity = opacity[in_mask][index]
+                sorted_color = color[in_mask][index]
+
+                self.mean3d_tile[v//TILE_SIZE][u//TILE_SIZE] = means3d[in_mask][index]
+                self.mean2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_means2D
+                self.scale2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_scale2d
+                self.label_tile[v//TILE_SIZE][u//TILE_SIZE] = [sorted_color, sorted_depths, sorted_opacity]
+
+        tile_data = {
+            "mean2d": self.mean2d_tile,
+            "scale2d": self.scale2d_tile,
+            "mean3d": self.mean3d_tile,
+            "label": self.label_tile
+        }
+
+        return {
+            "tiles": tile_data,
+        }
     
     def render(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
         radii = torch.max(scale2d, dim=-1).values*3
@@ -406,7 +453,13 @@ class GaussRendererGlobalScale(nn.Module):
                 self.mean3d_tile[v//TILE_SIZE][u//TILE_SIZE] = means3d[in_mask][index]
                 self.mean2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_means2D
                 self.scale2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_scale2d
-                self.label_tile[v//TILE_SIZE][u//TILE_SIZE] = [sorted_color, tile_depth, acc_alpha]
+                self.label_tile[v//TILE_SIZE][u//TILE_SIZE] = [sorted_color, sorted_depths, sorted_opacity]
+
+                # value, index = torch.max(sorted_color, dim=0)
+                # ic(sorted_opacity.max())
+                # ic(alpha.max())
+                # ic(torch.max(sorted_color))
+                # ic(torch.max(tile_color))
 
         tile_data = {
             "mean2d": self.mean2d_tile,
@@ -429,8 +482,8 @@ class GaussRendererGlobalScale(nn.Module):
         means3d = pc.get_xyz
         opacity = pc.get_opacity
         scales = pc.get_scaling
-        rotations = pc.get_rotation
-        shs = pc.get_features
+        # rotations = pc.get_rotation
+        rgbs = pc.get_features
         
         if USE_PROFILE:
             prof = profiler.record_function
@@ -441,12 +494,12 @@ class GaussRendererGlobalScale(nn.Module):
             mean_ndc, mean_view, in_mask = projection_ndc(means3d, 
                     viewmatrix=camera.world_view_transform, 
                     projmatrix=camera.projection_matrix)
-            mean_ndc = mean_ndc[in_mask]
-            mean_view = mean_view[in_mask]
+            mean_ndc = mean_ndc#[in_mask]
+            mean_view = mean_view#[in_mask]
             depths = mean_view[:,2]
         
         with prof("build color"):
-            color = self.build_color(means3d=means3d, shs=shs, camera=camera)
+            color = rgbs
         
         scale3d = scales
         
@@ -481,10 +534,10 @@ class GaussRendererGlobalScale(nn.Module):
             elif mode=='train':
                 rets = self.train(
                     camera = camera, 
-                    means2d=means2d,
-                    cov2d=cov2d,
                     means3d=means3d,
-                    cov3d=cov3d,
+                    scale3d=scale3d,
+                    means2d=means2d,
+                    scale2d=scale2d,
                     color=color,
                     opacity=opacity, 
                     depths=depths,

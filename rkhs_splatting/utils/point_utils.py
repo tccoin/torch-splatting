@@ -64,6 +64,7 @@ def get_point_clouds(cameras, depths, alphas, rgbs=None):
 def get_point_clouds_tiles(cameras, depths, alphas, rgbs=None, tile_size=64):
     """
     depth map to point cloud
+    TODO: remove this method
     """
     Hs, Ws, intrinsics, c2ws = parse_camera(cameras)
     W, H = int(Ws[0].item()), int(Hs[0].item())
@@ -80,6 +81,9 @@ def get_point_clouds_tiles(cameras, depths, alphas, rgbs=None, tile_size=64):
             tile = torch.zeros_like(alphas)
             tile[0,v*tile_size:(v+1)*tile_size, u*tile_size:(u+1)*tile_size] = 1
             mask_tile = mask & (tile.flatten(0)==1)
+
+            # disable mask
+            # mask_tile = torch.ones_like(mask) & (tile.flatten(0)==1)
             coords_tile = pts[mask_tile].cpu().numpy()
             rgbas_tile = rgbas.flatten(1,-2)[mask_tile].cpu().numpy()
             count += mask_tile.sum()
@@ -137,6 +141,35 @@ class PointCloud:
             ),
         )
 
+    def generate_random_noise(self, num_points: int, **subsample_kwargs) -> "PointCloud":
+        """
+        Generate a new PointCloud with random noise.
+
+        :param num_points: number of points to generate.
+        :param subsample_kwargs: arguments to self.subsample().
+        :return: a new PointCloud.
+        """
+        max_coor = np.max(self.coords, axis=0)
+        min_coor = np.min(self.coords, axis=0)
+        new_coords = np.random.uniform(min_coor, max_coor, size=(num_points, 3))
+        new_channels = {k: np.random.uniform(v.min(), v.max(), size=(num_points,)) for k, v in self.channels.items()}
+        return PointCloud(coords=new_coords, channels=new_channels)
+    
+    def generate_random_color(self, num_points: int, **subsample_kwargs) -> "PointCloud":
+        """
+        Sample a random subset of this PointCloud and change the color.
+
+        :param num_points: number of points to generate.
+        :param subsample_kwargs: arguments to self.subsample().
+        :return: a new PointCloud.
+        """
+        new_coords = np.random.choice(len(self.coords), size=(num_points,), replace=False)
+        new_channels = {k: v[new_coords] for k, v in self.channels.items()}
+        new_channels['R'] = np.random.uniform(0, 1, size=(num_points,))
+        new_channels['G'] = np.random.uniform(0, 1, size=(num_points,))
+        new_channels['B'] = np.random.uniform(0, 1, size=(num_points,))
+        return PointCloud(coords=self.coords[new_coords], channels=new_channels)
+
     def random_sample(self, num_points: int, **subsample_kwargs) -> "PointCloud":
         """
         Sample a random subset of this PointCloud.
@@ -146,6 +179,9 @@ class PointCloud:
         :return: a reduced PointCloud, or self if num_points is not less than
                  the current number of points.
         """
+        # max_coor = np.max(self.coords, axis=0)
+        # min_coor = np.min(self.coords, axis=0)
+        # ic(max_coor, min_coor)
         if len(self.coords) <= num_points:
             return self
         indices = np.random.choice(len(self.coords), size=(num_points,), replace=False)

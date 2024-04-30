@@ -33,21 +33,29 @@ class SL1Loss(nn.Module):
         return torch.mean(loss)
 
 
-def rkhs_global_scale_loss(prediction_tiles, gt_points, gt_rgb, scale3d):
+def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geometry=True, use_rgb=True):
 
     mean2d_tiles = prediction_tiles['mean2d']
     mean3d_tiles = prediction_tiles['mean3d']
     scale2d_tiles = prediction_tiles['scale2d']
     label_tiles = prediction_tiles['label']
 
+    gt_mean2d_tiles = gt_tiles['mean2d']
+    gt_mean3d_tiles = gt_tiles['mean3d']
+    gt_label_tiles = gt_tiles['label']
+
     N = len(mean2d_tiles)
     M = len(mean2d_tiles[0])
     T = gt_rgb.shape[0]//N
+
+    # ic(scale3d)
 
     scale3d_squared = scale3d**2
 
     import numpy as np
     mean_tile_number = np.mean([scale2d_tiles[v][u].shape[0] for v in range(N) for u in range(M)])
+
+
 
     # local map norm, training image norm, inner product
     loss = [0, 0, 0]
@@ -60,46 +68,79 @@ def rkhs_global_scale_loss(prediction_tiles, gt_points, gt_rgb, scale3d):
                 continue
             init = True
 
-            pc_tile = gt_points[v][u]
-            # pc_tile = pc_tile.random_sample(300)
-            gt_label_tile = torch.from_numpy(pc_tile.select_channels(['R', 'G', 'B'])/255.0).to(scale3d.device)
-            gt_points_tile = torch.from_numpy(pc_tile.coords).to(scale3d.device)
-            P = gt_label_tile.shape[0]
+            # pc_tile = gt_points[v][u]
+            # gt_rgb_tile = torch.from_numpy(pc_tile.select_channels(['R', 'G', 'B'])/255.0).to(scale3d.device)
+            # gt_points_tile = torch.from_numpy(pc_tile.coords).to(scale3d.device)
+            gt_rgb_tile = gt_label_tiles[v][u][0]
+            gt_mean3d_tile = gt_mean3d_tiles[v][u]
+            P = gt_rgb_tile.shape[0]
 
             # ic(M, N, B, P, T)
 
-            gt_label_tile_unsq0 = gt_label_tile.unsqueeze(0)
-            gt_label_tile_unsq1 = gt_label_tile.unsqueeze(1)
-            gt_points_tile_unsq0 = gt_points_tile.unsqueeze(0)
-            gt_points_tile_unsq1 = gt_points_tile.unsqueeze(1)
+            gt_rgb_tile_unsq0 = gt_rgb_tile.unsqueeze(0)
+            gt_rgb_tile_unsq1 = gt_rgb_tile.unsqueeze(1)
+            gt_mean3d_tile_unsq0 = gt_mean3d_tile.unsqueeze(0)
+            gt_mean3d_tile_unsq1 = gt_mean3d_tile.unsqueeze(1)
 
-            label_tile = label_tiles[v][u][0] # only rgb for now
-            label_tile_unsq0 = label_tile.unsqueeze(0)
-            label_tile_unsq1 = label_tile.unsqueeze(1)
+            rgb_tile = label_tiles[v][u][0]
+            opacity_tile = label_tiles[v][u][2]
+            rgb_tile_unsq0 = rgb_tile.unsqueeze(0)
+            rgb_tile_unsq1 = rgb_tile.unsqueeze(1)
             mean3d_tile = mean3d_tiles[v][u]
             mean3d_tile_unsq0 = mean3d_tile.unsqueeze(0)
             mean3d_tile_unsq1 = mean3d_tile.unsqueeze(1)
 
-            # label_tile = label_tile[:600]
-            # mean3d_tile = mean3d_tile[:600]
+            # ic(mean3d_tile.shape)
+            # ic(rgb_tile.shape)
+            # if rgb_tile.shape[0]>0:
+            #     ic(torch.min(rgb_tile), torch.max(rgb_tile))
 
-            # inner product between local map and current frame
-            label2 = (-0.5 * (label_tile_unsq1 - gt_label_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
-            point2 = (-0.5 * (mean3d_tile_unsq1 - gt_points_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
-            # point2 = (-0.5 * (mean3d_tile_unsq1 - gt_points_tile_unsq0).abs().pow(3).sum(-1).pow(2/3) / scale3d_squared).exp()
-            loss2 = label2 * point2
+            scale_rgb_squared = 2**2 # 2
+            # scale3d_squared = 0.01**2 #0.015**2
+            geo_cut_off = exp(-0.5 *(0.1**2)*3/scale3d_squared)
 
-            # local map inner product
-            label0 = (-0.5 * (label_tile_unsq1 - label_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
-            point0 = (-0.5 * (mean3d_tile_unsq1 - mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
-            loss0 = label0 * point0
+            # 0: local map inner product
+            # 1: current frame inner product
+            # 2: inner product between local map and current frame
 
-            # current frame inner product
-            label1 = (-0.5 * (gt_label_tile_unsq1 - gt_label_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
-            point1 = (-0.5 * (gt_points_tile_unsq1 - gt_points_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
-            loss1 = label1 * point1
+            # ic(M, N, B, P, T)
 
-            # ic(loss0.sum(), loss1.sum(), loss2.sum())
+            if use_rgb:
+                rgb0 = (-0.5 * (rgb_tile_unsq1 - rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
+                rgb1 = (-0.5 * (gt_rgb_tile_unsq1 - gt_rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
+                rgb2 = (-0.5 * (rgb_tile_unsq1 - gt_rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
+
+                # rgb0 = torch.where(rgb0 < rgb_cut_off, 1, rgb0)
+                # rgb1 = torch.where(rgb1 < rgb_cut_off, 1, rgb1)
+                # rgb2 = torch.where(rgb2 < rgb_cut_off, 1, rgb2)
+            else:
+                rgb0 = 1
+                rgb1 = 1
+                rgb2 = 1
+            if use_geometry:
+                geo0 = (-0.5 * (mean3d_tile_unsq1 - mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
+                geo1 = (-0.5 * (gt_mean3d_tile_unsq1 - gt_mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
+                geo2 = (-0.5 * (mean3d_tile_unsq1 - gt_mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
+
+                # geo0 = torch.where(geo0 < geo_cut_off, 1, geo0)
+                # geo1 = torch.where(geo1 < geo_cut_off, 1, geo1)
+                # geo2 = torch.where(geo2 < geo_cut_off, 1, geo2)
+            else:
+                geo0 = 1
+                geo1 = 1
+                geo2 = 1
+
+
+            loss0 = rgb0 * geo0
+            loss1 = rgb1 * geo1
+            loss2 = rgb2 * geo2
+
+            # naive way to reduce opacity in empty space
+            # k = torch.tensor(geo2.sum(axis=1)).requires_grad_(False)
+            # loss_opacity = torch.where(k<0.001, opacity_tile.squeeze(1)*1e6/(k+1e-6), 0)
+            # loss[0] += loss_opacity.sum()
+            # ic(opacity_tile.max(), opacity_tile.min())
+            # ic(k.shape, opacity_tile.shape, loss_opacity.shape)
 
             loss[0] = loss0.sum() + loss[0]
             loss[1] = loss1.sum() + loss[1]
