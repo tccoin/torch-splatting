@@ -104,21 +104,18 @@ RUN sudo add-apt-repository ppa:deadsnakes/ppa \
     && sudo apt-get update \
     && sudo apt-get install -y --no-install-recommends \
     python3.9-dev \
-    && sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
+    && sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1 \
+    && python3 -m pip install --upgrade pip
 
 RUN pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 
-RUN python3 -m pip install --upgrade pip \
-    && python3 -m pip install numpy==1.24.4 \
-    && python3 -m pip install -r requirements.txt \
-    && python3 -m pip install -r ./thirdparty/gtsam/python/requirements.txt \
-    && sudo chmod 777 /usr/local/lib/python3.9/dist-packages/ && python3 setup.py install 
+RUN pip install numpy==1.24.4
 
-ENV TCNN_CUDA_ARCHITECTURES=75
+ARG TORCH_CUDA_ARCH_LIST="3.5;5.0;6.0;6.1;7.0;7.5;8.0;8.6+PTX"
 
 RUN git clone https://github.com/tccoin/torch-splatting.git \
     && cd torch-splatting \
     && pip install imageio accelerate einops matplotlib \
-    && git submodules update --init --recursive \
+    && git submodule update --init --recursive \
     && cd submodules/simple-knn \
     && pip install .
