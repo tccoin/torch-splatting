@@ -2,7 +2,7 @@ import torch
 import random
 from typing import BinaryIO, Dict, List, Optional, Union
 import numpy as np
-from  gaussian_splatting.utils.camera_utils import parse_camera
+from  rkhs_splatting.utils.camera_utils import parse_camera
 from icecream import ic
 
 def get_rays_single_image(H, W, intrinsics, c2w, render_stride=1):
@@ -42,7 +42,7 @@ def get_point_clouds(cameras, depths, alphas, rgbs=None):
     coords = []
     rgbas = []
     rays_o, rays_d = get_rays_single_image(H=H, W=W, intrinsics=intrinsics, c2w=c2ws)
-    mask = (alphas.flatten(1) == 1)
+    mask = (alphas.flatten(1) >1./255.)
     pts = rays_o + rays_d * depths.flatten(1).unsqueeze(-1)
     rgbas = torch.cat([rgbs, alphas.unsqueeze(-1)], dim=-1)
     coords = pts[mask].cpu().numpy()

@@ -5,7 +5,7 @@ A pure pytorch implementation of 3D gaussian splatting.
 clone the repo
 
 ```bash
-pip install imageio accelerate einops matplotlib
+pip install imageio accelerate einops matplotlib spatialmath-python icecream pytorch_memlab tensorboard plotly nbformat
 cd submodules/simple-knn
 pip install .
 # git clone git@gitlab.inria.fr:bkerbl/simple-knn.git

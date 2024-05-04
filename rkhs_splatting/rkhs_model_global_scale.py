@@ -3,10 +3,11 @@ import torch.nn  as nn
 import numpy as np
 import math
 from simple_knn._C import distCUDA2
-from gaussian_splatting.utils.point_utils import PointCloud
-from gaussian_splatting.gauss_render import strip_symmetric, inverse_sigmoid, build_scaling_rotation
-from gaussian_splatting.utils.sh_utils import RGB2SH
+from rkhs_splatting.utils.point_utils import PointCloud
+from rkhs_splatting.gauss_render import strip_symmetric, inverse_sigmoid, build_scaling_rotation
+from rkhs_splatting.utils.sh_utils import RGB2SH
 from icecream import ic
+from rkhs_splatting.gauss_model import GaussModel
 
 class RKHSModelGlobalScale(GaussModel):
     """
@@ -59,15 +60,15 @@ class RKHSModelGlobalScale(GaussModel):
             colors = np.zeros_like(colors)
             opacities = inverse_sigmoid(0.9 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
-        self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(self._trainable))
-        # self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(self._trainable))
-        # self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(self._trainable))
-        self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float().requires_grad_(self._trainable))
-        # self._scaling = nn.Parameter(scales.requires_grad_(True))
-        self._scaling = scales
-        self._rotation = nn.Parameter(rots.requires_grad_(self._trainable))
-        self._opacity = nn.Parameter(opacities.requires_grad_(self._trainable))
-        # self._opacity = opacities
+        if self._trainable:
+            self._xyz = nn.Parameter(fused_point_cloud)
+            self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
+            self._scaling = scales
+            self._opacity = nn.Parameter(opacities)
+        else:
+            self._xyz = fused_point_cloud
+            self._features = torch.tensor(np.asarray(colors), device="cuda").float()
+            self._scaling = scales
+            self._opacity = opacities
         self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
         return self
-    

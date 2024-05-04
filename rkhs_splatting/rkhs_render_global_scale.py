@@ -4,6 +4,7 @@ import torch.nn as nn
 import math
 from einops import reduce
 from icecream import ic
+from rkhs_splatting.utils.camera_utils import to_viewpoint_camera
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x))
@@ -191,8 +192,9 @@ class RKHSRendererGlobalScale(nn.Module):
         self.pix_coord = torch.stack(torch.meshgrid(torch.arange(256), torch.arange(256), indexing='xy'), dim=-1).to('cuda')
         
     
-    def train(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
-        radii = torch.max(scale2d, dim=-1).values*3
+    def generate_tiles(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
+
+        radii = torch.max(scale2d, dim=-1).values*10
         rect = get_rect(means2d, radii, width=camera.image_width, height=camera.image_height)
 
         TILE_SIZE = 64
@@ -322,12 +324,8 @@ class RKHSRendererGlobalScale(nn.Module):
         }
 
 
-    def forward(self, camera, pc, mode='render', **kwargs):
-        means3d = pc.get_xyz
-        opacity = pc.get_opacity
-        scales = pc.get_scaling
-        # rotations = pc.get_rotation
-        rgbs = pc.get_features
+    def forward(self, camera_data, means3d, opacity, scale3d, features, mode='render', **kwargs):
+        camera = to_viewpoint_camera(camera_data)
         
         if USE_PROFILE:
             prof = profiler.record_function
@@ -343,9 +341,7 @@ class RKHSRendererGlobalScale(nn.Module):
             depths = mean_view[:,2]
         
         with prof("build color"):
-            color = rgbs
-        
-        scale3d = scales
+            color = features
         
         with prof("scale 2d"):
             scale2d = build_scale_2d(
@@ -376,7 +372,7 @@ class RKHSRendererGlobalScale(nn.Module):
                     depths=depths,
                 )
             elif mode=='train':
-                rets = self.train(
+                rets = self.generate_tiles(
                     camera = camera, 
                     means3d=means3d,
                     scale3d=scale3d,
