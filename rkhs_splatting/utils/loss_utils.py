@@ -109,7 +109,6 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
                 rgb0 = (-0.5 * (rgb_tile_unsq1 - rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
                 rgb1 = (-0.5 * (gt_rgb_tile_unsq1 - gt_rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
                 rgb2 = (-0.5 * (rgb_tile_unsq1 - gt_rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
-
                 # rgb0 = torch.where(rgb0 < rgb_cut_off, 1, rgb0)
                 # rgb1 = torch.where(rgb1 < rgb_cut_off, 1, rgb1)
                 # rgb2 = torch.where(rgb2 < rgb_cut_off, 1, rgb2)

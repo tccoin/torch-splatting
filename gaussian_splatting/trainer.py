@@ -4,7 +4,7 @@ from accelerate import Accelerator
 from torch.optim import Adam
 from pathlib import Path
 import os
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 
 def exists(x):
     return x is not None

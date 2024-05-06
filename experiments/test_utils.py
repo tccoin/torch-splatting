@@ -23,7 +23,7 @@ def create_camera(H,W,fx,fy,c2w):
     intrinsic[1,2] = H/2
     intrinsic = intrinsic.reshape(-1)
     c2w = np.array(c2w).reshape(-1)
-    camera_data = np.array([[H,W, *intrinsic, *c2w]], dtype=np.float32)
+    camera_data = np.array([H,W, *intrinsic, *c2w], dtype=np.float32)
     return torch.tensor(camera_data).cuda()
 
 def create_dataset(pc, camera_data, model, renderer):

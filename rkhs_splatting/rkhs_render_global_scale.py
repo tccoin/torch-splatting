@@ -235,11 +235,12 @@ class RKHSRendererGlobalScale(nn.Module):
             "mean2d": self.mean2d_tile,
             "scale2d": self.scale2d_tile,
             "mean3d": self.mean3d_tile,
-            "label": self.label_tile
+            "label": self.label_tile,
+            "camera": camera
         }
 
         return {
-            "tiles": tile_data,
+            "tiles": tile_data
         }
     
     def render(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
@@ -321,12 +322,12 @@ class RKHSRendererGlobalScale(nn.Module):
             "visiility_filter": radii > 0,
             "radii": radii,
             "tiles": tile_data,
+            "camera": camera
         }
 
 
-    def forward(self, camera_data, means3d, opacity, scale3d, features, mode='render', **kwargs):
-        camera = to_viewpoint_camera(camera_data)
-        
+    def forward(self, camera, means3d, opacity, scale3d, features, mode='render', **kwargs):
+
         if USE_PROFILE:
             prof = profiler.record_function
         else:
