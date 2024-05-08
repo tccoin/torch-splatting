@@ -22,7 +22,7 @@ class GSSTrainer(Trainer):
         super().__init__(**kwargs)
         self.data = kwargs.get('data')
         self.input_model = kwargs.get('input_model')
-        self.input_model.set_scaling(self.model.get_scaling)
+        # self.input_model.set_scaling(self.model.get_scaling)
         self.gauss_render = kwargs.get('renderer')
         self.lambda_dssim = 0.2
         self.lambda_depth = 0.0
@@ -32,6 +32,8 @@ class GSSTrainer(Trainer):
         self.tensorboard_writer = SummaryWriter(log_dir=self.results_folder)
         self.use_input_frames = kwargs.get('use_input_frames')
         self.input_frames = kwargs.get('input_frames')
+        self.use_rkhs_rgb = kwargs.get('use_rkhs_rgb')
+        self.use_rkhs_geo = kwargs.get('use_rkhs_geo')
 
     
     def on_train_step(self):
@@ -92,11 +94,9 @@ class GSSTrainer(Trainer):
         depth_loss = loss_utils.l1_loss(out['depth'][..., 0][mask], depth[mask])
         ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb)
 
-
-        use_geometry = True
-        use_rgb = True
-        rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=use_geometry, use_rgb=use_rgb)
-        rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
+        rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
+        rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 10*rkhs_loss[2]
+        # rkhs_loss_total = rkhs_loss[0]-2*rkhs_loss[2]
 
 
         total_loss = rkhs_loss_total

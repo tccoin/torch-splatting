@@ -194,7 +194,7 @@ class RKHSRendererGlobalScale(nn.Module):
     
     def generate_tiles(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
 
-        radii = torch.max(scale2d, dim=-1).values*10
+        radii = torch.max(scale2d, dim=-1).values*3
         rect = get_rect(means2d, radii, width=camera.image_width, height=camera.image_height)
 
         TILE_SIZE = 64

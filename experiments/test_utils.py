@@ -47,3 +47,19 @@ def create_dataset(pc, camera_data, model, renderer):
     #     alpha=render_output['alpha'].squeeze().unsqueeze(0).detach(),
     #     # alpha_nobg=alpha_nobg.squeeze().unsqueeze(0).detach()
     # )
+
+def create_random_pc(n, mu=0, sigma=1, alpha=1, rgba=None):
+    pc_coords = mu + np.random.rand(n,3) * sigma
+    if rgba is not None:
+        pc_rgbas = np.ones((n,4)) * rgba
+    else:
+        pc_rgbas = np.random.rand(n,4)
+    pc_rgbas[:,3] = alpha
+    pc_channels = dict(
+        R = pc_rgbas[:,0],
+        G = pc_rgbas[:,1],
+        B = pc_rgbas[:,2],
+        A = pc_rgbas[:,3]
+    )
+    pc = PointCloud(pc_coords, pc_channels)
+    return pc

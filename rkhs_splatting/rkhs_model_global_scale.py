@@ -64,6 +64,7 @@ class RKHSModelGlobalScale(GaussModel):
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
             self._scaling = scales
+            # self._scaling = nn.Parameter(scales)
             self._opacity = nn.Parameter(opacities)
         else:
             self._xyz = fused_point_cloud
