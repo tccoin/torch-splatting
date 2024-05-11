@@ -41,6 +41,7 @@ class GSSTrainer(Trainer):
     def on_train_step(self):
         ind = np.random.choice(len(self.data['camera']))
         camera_data = self.data['camera'][ind]
+        camera = to_viewpoint_camera(camera_data)
         rgb = self.data['rgb'][ind]
         depth = self.data['depth'][ind]
         alpha = self.data['alpha'][ind]
@@ -56,7 +57,7 @@ class GSSTrainer(Trainer):
             # if self.model.get_scaling < min_scaling:
             #     self.model.set_scaling(min_scaling)
             out = self.gauss_render(
-                camera_data,
+                camera,
                 self.model.get_xyz,
                 self.model.get_opacity,
                 self.model.get_scaling,
@@ -83,7 +84,7 @@ class GSSTrainer(Trainer):
         self.input_model.set_scaling(self.model.get_scaling)
         self.input_model.create_from_pcd(points, initial_scaling=self.model.get_scaling)
         input_frame = self.gauss_render(
-            camera_data,
+            camera,
             self.input_model.get_xyz,
             self.input_model.get_opacity,
             self.input_model.get_scaling,
@@ -121,10 +122,11 @@ class GSSTrainer(Trainer):
         import matplotlib.pyplot as plt
         ind = np.random.choice(len(self.data['camera']))
         camera_data = self.data['camera'][ind]
+        camera = to_viewpoint_camera(camera_data)
 
         rgb = self.data['rgb'][ind].detach().cpu().numpy()
         out = self.gauss_render(
-            camera_data,
+            camera,
             self.model.get_xyz,
             self.model.get_opacity,
             self.model.get_scaling,
