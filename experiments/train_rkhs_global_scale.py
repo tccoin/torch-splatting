@@ -37,7 +37,6 @@ class GSSTrainer(Trainer):
             f.write('iter,loss,total,l1,ssim,depth,psnr\n')
         self.tensorboard_writer = SummaryWriter(log_dir=self.results_folder)
 
-
     
     def on_train_step(self):
         ind = np.random.choice(len(self.data['camera']))

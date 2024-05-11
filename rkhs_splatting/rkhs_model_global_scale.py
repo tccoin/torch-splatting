@@ -14,17 +14,20 @@ class RKHSModelGlobalScale(GaussModel):
     The scale of all Gaussians is the same in this model
     """
     
-    def __init__(self, sh_degree : int=3, debug=False, trainable=True):
+    def __init__(self, sh_degree : int=3, debug=False, trainable=True, scale_trainable=False):
         super(RKHSModelGlobalScale, self).__init__(sh_degree, debug)
         self._trainable = trainable
+        self._scale_trainable = scale_trainable
 
     @property
     def get_scaling(self):
         return self._scaling
 
     def set_scaling(self, scaling):
-        # self._scaling = nn.Parameter(scaling)
-        self._scaling = scaling
+        if self._trainable and self._scale_trainable:
+            self._scaling = nn.Parameter(scaling)
+        else:
+            self._scaling = scaling
     
     @property
     def get_features(self):
@@ -63,8 +66,10 @@ class RKHSModelGlobalScale(GaussModel):
         if self._trainable:
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
-            self._scaling = scales
-            # self._scaling = nn.Parameter(scales)
+            if self._scale_trainable:
+                self._scaling = nn.Parameter(scales)
+            else:
+                self._scaling = scales
             self._opacity = nn.Parameter(opacities)
         else:
             self._xyz = fused_point_cloud

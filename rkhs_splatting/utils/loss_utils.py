@@ -58,22 +58,24 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
 
 
     # local map norm, training image norm, inner product
-    loss = [0, 0, 0]
-    init = False
+    loss = [torch.tensor([0.]).requires_grad_(True).cuda() for i in range(3)]
     for v in range(N):
         for u in range(M):
             
-            B = mean2d_tiles[v][u].shape[0]
-            if B == 0 and init:
-                continue
-            init = True
+
+            B = mean2d_tiles[v][u].shape[0] # map point size
 
             # pc_tile = gt_points[v][u]
             # gt_rgb_tile = torch.from_numpy(pc_tile.select_channels(['R', 'G', 'B'])/255.0).to(scale3d.device)
             # gt_points_tile = torch.from_numpy(pc_tile.coords).to(scale3d.device)
+
+
             gt_rgb_tile = gt_label_tiles[v][u][0]
             gt_mean3d_tile = gt_mean3d_tiles[v][u]
-            P = gt_rgb_tile.shape[0]
+            P = gt_rgb_tile.shape[0] # train point size
+
+            if B == 0 or P==0:
+                continue
 
             # ic(M, N, B, P, T)
 
@@ -96,7 +98,7 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
             #     ic(torch.min(rgb_tile), torch.max(rgb_tile))
 
             scale_rgb_squared = 2**2 # 2
-            # scale3d_squared = 3**2 #0.015**2
+            scale3d_squared = 3**2 #0.015**2
             geo_cut_off = exp(-0.5 *(0.1**2)*3/scale3d_squared)
 
             # 0: local map inner product
@@ -141,9 +143,13 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
             # ic(opacity_tile.max(), opacity_tile.min())
             # ic(k.shape, opacity_tile.shape, loss_opacity.shape)
 
+            # if B>0 and P>0:
+            #     ic(loss2)
+
             loss[0] = loss0.sum() + loss[0]
             loss[1] = loss1.sum() + loss[1]
             loss[2] = loss2.sum() + loss[2]
+    print()
     return loss
 
 def l1_loss(prediction, gt):

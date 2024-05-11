@@ -29,12 +29,15 @@ class GSSTrainer(Trainer):
         # create a file self.results_folder / f'eval.csv'
         with open(self.results_folder / 'eval.csv', 'w') as f:
             f.write('iter,loss,total,l1,ssim,depth,psnr\n')
-        self.tensorboard_writer = SummaryWriter(log_dir=self.results_folder)
+        self.writer = kwargs.get('writer', True)
+        if self.writer:
+            self.tensorboard_writer = SummaryWriter(log_dir=self.results_folder)
         self.use_input_frames = kwargs.get('use_input_frames')
         self.input_frames = kwargs.get('input_frames')
         self.use_rkhs_rgb = kwargs.get('use_rkhs_rgb')
         self.use_rkhs_geo = kwargs.get('use_rkhs_geo')
-
+        self.min_scale = kwargs.get('min_scale', 0.010)
+        self.radii_multiplier = kwargs.get('radii_multiplier', 5)
     
     def on_train_step(self):
         if not self.use_input_frames:
@@ -56,7 +59,8 @@ class GSSTrainer(Trainer):
                 self.input_model.get_opacity,
                 self.input_model.get_scaling,
                 self.input_model.get_features,
-                mode='train'
+                mode='train',
+                radii_multiplier=self.radii_multiplier
             )
         else:
             ind = np.random.choice(len(self.input_frames))
@@ -73,7 +77,7 @@ class GSSTrainer(Trainer):
             prof = contextlib.nullcontext()
 
         with prof:
-            # min_scaling = torch.scalar_tensor(0.010, device="cuda")
+            min_scaling = torch.scalar_tensor(self.min_scale, device="cuda")
             # if self.model.get_scaling < min_scaling:
             #     self.model.set_scaling(min_scaling)
             out = self.gauss_render(
@@ -95,8 +99,9 @@ class GSSTrainer(Trainer):
         ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb)
 
         rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
-        rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 10*rkhs_loss[2]
-        # rkhs_loss_total = rkhs_loss[0]-2*rkhs_loss[2]
+        # rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
+        # rkhs_loss_total = 0.1*rkhs_loss[0]-2*rkhs_loss[2]
+        rkhs_loss_total = -2*rkhs_loss[2]
 
 
         total_loss = rkhs_loss_total
@@ -106,17 +111,19 @@ class GSSTrainer(Trainer):
         with open(self.results_folder / 'eval.csv', 'a') as f:
             f.write(f'{self.step},{total_loss},{l1_loss},{ssim_loss},{depth_loss},{psnr}\n')
 
-        self.tensorboard_writer.add_scalar('loss/total', total_loss, self.step)
-        self.tensorboard_writer.add_scalar('loss/rkhs', rkhs_loss_total, self.step)
-        self.tensorboard_writer.add_scalar('loss/l1', l1_loss, self.step)
-        self.tensorboard_writer.add_scalar('loss/ssim', ssim_loss, self.step)
-        self.tensorboard_writer.add_scalar('loss/depth', depth_loss, self.step)
-        self.tensorboard_writer.add_scalar('loss/psnr', psnr, self.step)
-        self.tensorboard_writer.add_scalar('rkhs/local_map', rkhs_loss[0], self.step)
-        self.tensorboard_writer.add_scalar('rkhs/train_frame', rkhs_loss[1], self.step)
-        self.tensorboard_writer.add_scalar('rkhs/inner_product', rkhs_loss[2], self.step)
-        self.tensorboard_writer.add_scalar('params/scaling', self.model.get_scaling, self.step)
-        # self.tensorboard_writer.add_graph(self.gauss_render, [camera_data, self.model.get_xyz, self.model.get_opacity, self.model.get_scaling, self.model.get_features])
+        if self.writer:
+            self.tensorboard_writer.add_scalar('loss/total', total_loss, self.step)
+            self.tensorboard_writer.add_scalar('loss/rkhs', rkhs_loss_total, self.step)
+            self.tensorboard_writer.add_scalar('loss/l1', l1_loss, self.step)
+            self.tensorboard_writer.add_scalar('loss/ssim', ssim_loss, self.step)
+            self.tensorboard_writer.add_scalar('loss/depth', depth_loss, self.step)
+            self.tensorboard_writer.add_scalar('loss/psnr', psnr, self.step)
+            self.tensorboard_writer.add_scalar('rkhs/local_map', rkhs_loss[0], self.step)
+            self.tensorboard_writer.add_scalar('rkhs/train_frame', rkhs_loss[1], self.step)
+            self.tensorboard_writer.add_scalar('rkhs/inner_product', rkhs_loss[2], self.step)
+            self.tensorboard_writer.add_scalar('params/scaling', self.model.get_scaling, self.step)
+            # self.tensorboard_writer.add_graph(self.gauss_render, [camera_data, self.model.get_xyz, self.model.get_opacity, self.model.get_scaling, self.model.get_features])
+            # self.tensorboard_writer.add_image('rgb/render', out['render'], self.step)
 
         return total_loss, log_dict
 
@@ -148,17 +155,18 @@ class GSSTrainer(Trainer):
         rgb_pd = out['render'].detach().cpu().numpy()
         depth_pd = out['depth'].detach().cpu().numpy()[..., 0]
         depth = np.concatenate([depth, depth_pd], axis=1)
-        # ic(depth[:,:256].min(), depth[:,:256].max())
-        # ic(depth[:,256:].min(), depth[:,256:].max())
-        # ic(depth[0,0], depth[0, 256])
         depth = depth / depth.max()
         depth = plt.get_cmap('Greys')(depth)[..., :3]
 
         # draw grid on rgb_pd
-        # for i in range(0, rgb_pd.shape[1], 64):
-        #     rgb_pd[:, i] = 0
-        # for i in range(0, rgb_pd.shape[0], 64):
-        #     rgb_pd[i] = 0
+        for i in range(0, rgb_pd.shape[1], 64):
+            rgb_pd[:, i] = 0.5
+        for i in range(0, rgb_pd.shape[0], 64):
+            rgb_pd[i] = 0.5
+        for i in range(0, rgb_pd.shape[1], 64):
+            rgb[:, i] = 0
+        for i in range(0, rgb_pd.shape[0], 64):
+            rgb[i] = 0
 
         image = np.concatenate([rgb, rgb_pd], axis=1)
         image = np.concatenate([image, depth], axis=0)

@@ -49,7 +49,7 @@ def create_dataset(pc, camera_data, model, renderer):
     # )
 
 def create_random_pc(n, mu=0, sigma=1, alpha=1, rgba=None):
-    pc_coords = mu + np.random.rand(n,3) * sigma
+    pc_coords = mu + (np.random.rand(n,3)-0.5) * sigma
     if rgba is not None:
         pc_rgbas = np.ones((n,4)) * rgba
     else:
