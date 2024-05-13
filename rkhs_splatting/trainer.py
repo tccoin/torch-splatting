@@ -160,9 +160,8 @@ class Trainer(object):
                 total_loss = total_loss.item()
                 log_str = f'loss: {total_loss:.3f}'
                 
-                print(log_dict)
                 for k in log_dict.keys():
-                    log_str += " {}: {:.3f}".format(k, log_dict[k])
+                    log_str += " {}: {:.3f}".format(k, float(log_dict[k]))
                 
                 pbar.set_description(log_str)
 
