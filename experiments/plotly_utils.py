@@ -63,13 +63,15 @@ def plot_point(fig, point, legend_name, color=None, text=''):
     ))
     fig.update_layout(scene_aspectmode='cube')
 
-def plot_points(fig, points, legend_name, color=None, text=''):
+def plot_points(fig, points, legend_name, color=None, text='', marker=None):
+    if marker is None:
+        marker = dict(size=5, color=color)
     fig.add_trace(go.Scatter3d(
         x=points[:, 0],
         y=points[:, 1],
         z=points[:, 2],
         mode='markers',
-        marker=dict(size=5, color=color),
+        marker=marker,
         name=legend_name,
         hoverinfo='text',
         text=text if text else legend_name
@@ -100,12 +102,13 @@ def plot_ray_from_camera(fig, camera_pose, focal_length, point, legend_name):
         name=legend_name
     ))
 
-def plot_pc(fig, pc, legend_name):
+def plot_pc(fig, pc, legend_name, marker_line_width=0, marker_size=5):
     points = pc.coords
     colors = pc.select_channels(['R', 'G', 'B', 'A'])
     colors = [f'rgba({r},{g},{b},{a})' for r,g,b,a in colors]
     text = [f'({x},{y},{z})' for x,y,z in points]
-    plot_points(fig, points, legend_name, colors, text)
+    marker = dict(size=marker_size, color=colors, line=dict(width=marker_line_width))
+    plot_points(fig, points, legend_name, colors, text, marker)
 
 def show_image(img, hoverinfo='x+y+z', name=''):
     fig = px.imshow(img)

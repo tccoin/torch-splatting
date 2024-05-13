@@ -149,7 +149,6 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
             loss[0] = loss0.sum() + loss[0]
             loss[1] = loss1.sum() + loss[1]
             loss[2] = loss2.sum() + loss[2]
-    print()
     return loss
 
 def l1_loss(prediction, gt):
