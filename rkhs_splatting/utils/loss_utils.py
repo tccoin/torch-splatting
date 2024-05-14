@@ -98,7 +98,7 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
             #     ic(torch.min(rgb_tile), torch.max(rgb_tile))
 
             scale_rgb_squared = 2**2 # 2
-            scale3d_squared = 3**2 #0.015**2
+            # scale3d_squared = 3**2 #0.015**2
             geo_cut_off = exp(-0.5 *(0.1**2)*3/scale3d_squared)
 
             # 0: local map inner product
