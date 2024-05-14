@@ -78,3 +78,16 @@ class RKHSModelGlobalScale(GaussModel):
             self._opacity = opacities
         self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
         return self
+
+    def to_pc(self):
+        N = self._xyz.shape[0]
+        pc_coords = self._xyz.detach().cpu().numpy()
+        pc_rgbs = self._features.detach().cpu().numpy()
+        pc_channels = dict(
+            R = pc_rgbs[:,0],
+            G = pc_rgbs[:,1],
+            B = pc_rgbs[:,2],
+            A = self.get_opacity.detach().cpu().numpy().flatten()
+        )
+        pc = PointCloud(pc_coords, pc_channels)
+        return pc

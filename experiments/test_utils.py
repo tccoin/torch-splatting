@@ -48,8 +48,35 @@ def create_dataset(pc, camera_data, model, renderer):
     #     # alpha_nobg=alpha_nobg.squeeze().unsqueeze(0).detach()
     # )
 
-def create_random_pc(n, mu=0, sigma=1, alpha=1, rgba=None):
-    pc_coords = mu + (np.random.rand(n,3)-0.5) * sigma
+def create_random_pc(n, mu=0, sigma=1, alpha=1, rgba=None, shape='none'):
+    # coords
+    if shape=='none':
+        pc_coords = mu + (np.random.rand(n,3)-0.5) * sigma
+    elif shape=='sphere_surface':
+        pc_coords = np.random.randn(n,3)
+        pc_coords = pc_coords / np.linalg.norm(pc_coords, axis=1)[:,None]
+        pc_coords = mu + pc_coords * sigma
+    elif shape=='sphere':
+        pc_coords = np.random.randn(n,3)
+        pc_coords = pc_coords / np.linalg.norm(pc_coords, axis=1)[:,None].max()
+        pc_coords = mu + pc_coords * sigma
+    elif shape=='cube':
+        pc_coords = np.random.rand(n,3)
+        pc_coords = mu + (pc_coords-0.5) * sigma
+    elif shape=='cube_surface':
+        pc_coords = np.random.rand(n,3)
+        pc_coords = mu + (pc_coords-0.5) * sigma
+        face_indices = np.random.choice([0, 1, 2], size=n)
+        sign_indices = np.random.choice([1, -1], size=n)
+        for i in [0,1,2]:
+            print(pc_coords[face_indices==i, i].shape, sign_indices[face_indices==i].shape)
+            pc_coords[face_indices==i, i] = sign_indices[face_indices==i] * sigma/2
+    elif shape=='line':
+        pc_coords = np.random.rand(n,3)
+        pc_coords = mu + (pc_coords-0.5) * sigma
+        pc_coords[:,1:] = 0
+
+    # colors
     if rgba is not None:
         pc_rgbas = np.ones((n,4)) * rgba
     else:

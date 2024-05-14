@@ -56,6 +56,7 @@ class GSSTrainer(Trainer):
             # min_scaling = torch.scalar_tensor(0.010, device="cuda")
             # if self.model.get_scaling < min_scaling:
             #     self.model.set_scaling(min_scaling)
+            # ic(self.model.get_scaling)
             out = self.gauss_render(
                 camera,
                 self.model.get_xyz,
@@ -138,9 +139,6 @@ class GSSTrainer(Trainer):
         mask = (self.data['alpha'][ind] < 0.5).detach().cpu().numpy()
         depth[mask] = 0 # set depth for empty area
         depth = np.concatenate([depth, depth_pd], axis=1)
-        ic(depth[:,:256].min(), depth[:,:256].max())
-        ic(depth[:,256:].min(), depth[:,256:].max())
-        ic(depth[0,0], depth[0, 256])
         depth = depth / depth.max()
         depth = plt.get_cmap('Greys')(depth)[..., :3]
 
@@ -191,8 +189,8 @@ if __name__ == "__main__":
     render_kwargs = {
         'white_bkgd': True
     }
-    folder_name = datetime.datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
-    # folder_name = 'geo_010'
+    # folder_name = datetime.datetime.now().strftime("%Y-%m-%d__%H-%M-%S")
+    folder_name = 'test_sofa'
     results_folder = pathlib.Path('../result/'+folder_name)
     # if results_folder.exists():
     #     import shutil

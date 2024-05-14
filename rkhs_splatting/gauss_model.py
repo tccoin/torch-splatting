@@ -147,4 +147,3 @@ class GaussModel(nn.Module):
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
         return l
-    

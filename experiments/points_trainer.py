@@ -78,8 +78,8 @@ class GSSTrainer(Trainer):
 
         with prof:
             min_scaling = torch.scalar_tensor(self.min_scale, device="cuda")
-            # if self.model.get_scaling < min_scaling:
-            #     self.model.set_scaling(min_scaling)
+            if self.model.get_scaling < min_scaling:
+                self.model.set_scaling(min_scaling)
             out = self.gauss_render(
                 camera,
                 self.model.get_xyz,
@@ -99,9 +99,9 @@ class GSSTrainer(Trainer):
         ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb)
 
         rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
-        # rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
+        rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
         # rkhs_loss_total = 0.1*rkhs_loss[0]-2*rkhs_loss[2]
-        rkhs_loss_total = -2*rkhs_loss[2]
+        # rkhs_loss_total = -2*rkhs_loss[2]
 
 
         total_loss = rkhs_loss_total

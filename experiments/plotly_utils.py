@@ -102,12 +102,12 @@ def plot_ray_from_camera(fig, camera_pose, focal_length, point, legend_name):
         name=legend_name
     ))
 
-def plot_pc(fig, pc, legend_name, marker_line_width=0, marker_size=5):
+def plot_pc(fig, pc, legend_name, marker_line_width=0, marker_line_color='black', marker_size=5):
     points = pc.coords
     colors = pc.select_channels(['R', 'G', 'B', 'A'])
     colors = [f'rgba({r},{g},{b},{a})' for r,g,b,a in colors]
     text = [f'({x},{y},{z})' for x,y,z in points]
-    marker = dict(size=marker_size, color=colors, line=dict(width=marker_line_width))
+    marker = dict(size=marker_size, color=colors, line=dict(width=marker_line_width, color=marker_line_color))
     plot_points(fig, points, legend_name, colors, text, marker)
 
 def show_image(img, hoverinfo='x+y+z', name=''):
