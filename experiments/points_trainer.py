@@ -38,8 +38,14 @@ class GSSTrainer(Trainer):
         self.use_rkhs_geo = kwargs.get('use_rkhs_geo')
         self.min_scale = kwargs.get('min_scale', 0.010)
         self.radii_multiplier = kwargs.get('radii_multiplier', 5)
+        self.tile_size = kwargs.get('tile_size', 64)
     
     def on_train_step(self):
+        ### debug
+        # if self.step==2:
+        #     quit()
+
+        ### load input frame
         if not self.use_input_frames:
             # load training data
             ind = np.random.choice(len(self.data['camera']))
@@ -60,7 +66,8 @@ class GSSTrainer(Trainer):
                 self.input_model.get_scaling,
                 self.input_model.get_features,
                 mode='train',
-                radii_multiplier=self.radii_multiplier
+                radii_multiplier=self.radii_multiplier,
+                tile_size=self.tile_size
             )
         else:
             ind = np.random.choice(len(self.input_frames))
@@ -70,12 +77,13 @@ class GSSTrainer(Trainer):
             depth = input_frame['depth'].detach()[..., 0]
             mask = (input_frame['alpha'][..., 0] < 0.5).detach()
 
-
+        ### profiling tools
         if USE_PROFILE:
             prof = profile(activities=[ProfilerActivity.CUDA], with_stack=True)
         else:
             prof = contextlib.nullcontext()
 
+        ### render current frame
         with prof:
             min_scaling = torch.scalar_tensor(self.min_scale, device="cuda")
             if self.model.get_scaling < min_scaling:
@@ -85,25 +93,29 @@ class GSSTrainer(Trainer):
                 self.model.get_xyz,
                 self.model.get_opacity,
                 self.model.get_scaling,
-                self.model.get_features
+                self.model.get_features,
+                point_ids=self.input_model.get_ids,
+                radii_multiplier=self.radii_multiplier,
+                tile_size=self.tile_size
             )
 
         if USE_PROFILE:
             print(prof.key_averages(group_by_stack_n=True).table(sort_by='self_cuda_time_total', row_limit=20))
 
-        # if self.step==2:
-        #     quit()
 
+        ### calc rkhs loss
+        rkhs_loss, inner_product_tiles = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
+
+        ### remove points with small inner product
+        check_results = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
+
+        ### calc loss
         l1_loss = loss_utils.l1_loss(out['render'], rgb)
         depth_loss = loss_utils.l1_loss(out['depth'][..., 0][mask], depth[mask])
         ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb)
-
-        rkhs_loss = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
         # rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
         rkhs_loss_total = rkhs_loss[0]-2*rkhs_loss[2]
         # rkhs_loss_total = -2*rkhs_loss[2]
-
-
         total_loss = rkhs_loss_total
         psnr = utils.img2psnr(out['render'], rgb)
         log_dict = {'total': total_loss,'l1':l1_loss, 'ssim': ssim_loss, 'depth': depth_loss, 'psnr': psnr}
@@ -150,7 +162,9 @@ class GSSTrainer(Trainer):
             self.model.get_xyz,
             self.model.get_opacity,
             self.model.get_scaling,
-            self.model.get_features
+            self.model.get_features,
+            radii_multiplier=self.radii_multiplier,
+            tile_size=self.tile_size
         )
         rgb_pd = out['render'].detach().cpu().numpy()
         depth_pd = out['depth'].detach().cpu().numpy()[..., 0]
@@ -159,13 +173,13 @@ class GSSTrainer(Trainer):
         depth = plt.get_cmap('Greys')(depth)[..., :3]
 
         # draw grid on rgb_pd
-        for i in range(0, rgb_pd.shape[1], 64):
+        for i in range(0, rgb_pd.shape[1], self.tile_size):
             rgb_pd[:, i] = 0.5
-        for i in range(0, rgb_pd.shape[0], 64):
+        for i in range(0, rgb_pd.shape[0], self.tile_size):
             rgb_pd[i] = 0.5
-        for i in range(0, rgb_pd.shape[1], 64):
+        for i in range(0, rgb_pd.shape[1], self.tile_size):
             rgb[:, i] = 0
-        for i in range(0, rgb_pd.shape[0], 64):
+        for i in range(0, rgb_pd.shape[0], self.tile_size):
             rgb[i] = 0
 
         image = np.concatenate([rgb, rgb_pd], axis=1)

@@ -2,6 +2,10 @@ import torch
 import numpy as np
 from rkhs_splatting.utils.camera_utils import to_viewpoint_camera
 from rkhs_splatting.utils.point_utils import PointCloud
+from rkhs_splatting.utils.data_utils import read_all
+from rkhs_splatting.utils.point_utils import get_point_clouds
+from icecream import ic
+import cv2
 
 def create_pc(data):
     pc_coords = data[:,:3]
@@ -15,15 +19,15 @@ def create_pc(data):
     pc = PointCloud(pc_coords, pc_channels)
     return pc
 
-def create_camera(H,W,fx,fy,c2w):
+def create_camera(fx,fy,cx,cy,c2w):
     intrinsic = np.eye(4)
     intrinsic[0,0] = fx
     intrinsic[1,1] = fy
-    intrinsic[0,2] = W/2
-    intrinsic[1,2] = H/2
+    intrinsic[0,2] = cx
+    intrinsic[1,2] = cy
     intrinsic = intrinsic.reshape(-1)
     c2w = np.array(c2w).reshape(-1)
-    camera_data = np.array([H,W, *intrinsic, *c2w], dtype=np.float32)
+    camera_data = np.array([cy*2, cx*2, *intrinsic, *c2w], dtype=np.float32)
     return torch.tensor(camera_data).cuda()
 
 def create_dataset(pc, camera_data, model, renderer):
@@ -90,3 +94,40 @@ def create_random_pc(n, mu=0, sigma=1, alpha=1, rgba=None, shape='none'):
     )
     pc = PointCloud(pc_coords, pc_channels)
     return pc
+
+def load_sample_dataset(folder, frame_ranges, resize_factor=0.5):
+    train_pcs = []
+    cameras = []
+    data = read_all(folder, resize_factor=resize_factor)
+    data = {k: v.cuda() for k, v in data.items()}
+    N = frame_ranges[1] - frame_ranges[0]
+    for key,value in data.items():
+        data[key] = value[frame_ranges[0]:frame_ranges[1]]
+    for i in range(N):
+        train_pc = get_point_clouds(data['camera'][i].unsqueeze(0), data['depth'][i].unsqueeze(0), data['alpha'][i].unsqueeze(0), data['rgb'][i].unsqueeze(0))
+        train_pcs.append(train_pc)
+        cameras.append(to_viewpoint_camera(data['camera'][i]))
+    return train_pcs, cameras
+
+def load_custom_dataset(dataset, frame_ranges, resize_factor=1):
+    train_pcs = []
+    cameras = []
+    dataset.load_ground_truth()
+    for i in range(*frame_ranges):
+        dataset.set_curr_index(i)
+        rgb, depth = dataset.read_current_rgbd()
+        rgb = rgb[:,:,::-1]/255
+        depth = depth[:,:,np.newaxis]
+        alpha = np.where(depth<100, 1., 0.)
+        W, H = dataset.image_size
+        new_size = (int(W*resize_factor), int(H*resize_factor))
+        cv2.resize(alpha, new_size, interpolation=cv2.INTER_CUBIC)
+        rgb, depth, alpha = [cv2.resize(x, new_size, interpolation=cv2.INTER_CUBIC) for x in [rgb, depth, alpha]]
+        rgb, depth, alpha = [torch.tensor(x).squeeze().cuda() for x in [rgb, depth, alpha]]
+        c2w = dataset.read_current_ground_truth()
+        camera_intrinsics = [x*resize_factor for x in dataset.camera]
+        camera_data = create_camera(*camera_intrinsics, c2w)
+        train_pc = get_point_clouds(camera_data.unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+        train_pcs.append(train_pc)
+        cameras.append(to_viewpoint_camera(camera_data))
+    return train_pcs, cameras

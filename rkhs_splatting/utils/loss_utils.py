@@ -59,6 +59,7 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
 
     # local map norm, training image norm, inner product
     loss = [torch.tensor([0.]).requires_grad_(True).cuda() for i in range(3)]
+    inner_product_tiles = {v:{u:None for u in range(M)} for v in range(N)} # h,w,b,p
     for v in range(N):
         for u in range(M):
             
@@ -97,7 +98,7 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
             # if rgb_tile.shape[0]>0:
             #     ic(torch.min(rgb_tile), torch.max(rgb_tile))
 
-            scale_rgb_squared = 2**2 # 2
+            scale_rgb_squared = 2**2
             # scale3d_squared = 3**2 #0.015**2
             geo_cut_off = exp(-0.5 *(0.1**2)*3/scale3d_squared)
 
@@ -136,6 +137,8 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
             loss1 = rgb1 * geo1
             loss2 = rgb2 * geo2
 
+            inner_product_tiles[v][u] = geo2
+
             # naive way to reduce opacity in empty space
             # k = torch.tensor(geo2.sum(axis=1)).requires_grad_(False)
             # loss_opacity = torch.where(k<0.001, opacity_tile.squeeze(1)*1e6/(k+1e-6), 0)
@@ -149,7 +152,13 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
             loss[0] = loss0.sum() + loss[0]
             loss[1] = loss1.sum() + loss[1]
             loss[2] = loss2.sum() + loss[2]
-    return loss
+    return loss, inner_product_tiles
+
+def check_rkhs_loss(n_points, id_tile, inner_product_tiles):
+    result = {
+        'ids_to_remove': []
+    }
+    return result
 
 def l1_loss(prediction, gt):
     return torch.abs((prediction - gt)).mean()

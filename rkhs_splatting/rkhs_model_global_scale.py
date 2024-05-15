@@ -63,6 +63,7 @@ class RKHSModelGlobalScale(GaussModel):
             colors = np.zeros_like(colors)
             opacities = inverse_sigmoid(0.9 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
+        self._id = torch.arange(fused_point_cloud.shape[0], device="cuda")
         if self._trainable:
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())

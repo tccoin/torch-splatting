@@ -13,6 +13,7 @@ class GaussModel(nn.Module):
     A Gaussian Model
 
     * Attributes
+    _id: id of the model
     _xyz: locations of gaussians
     _feature_dc: DC term of features
     _feature_rest: rest features
@@ -44,6 +45,7 @@ class GaussModel(nn.Module):
     def __init__(self, sh_degree : int=3, debug=False):
         super(GaussModel, self).__init__()
         self.max_sh_degree = sh_degree  
+        self._id = torch.empty(0)
         self._xyz = torch.empty(0)
         self._features_dc = torch.empty(0)
         self._features_rest = torch.empty(0)
@@ -80,6 +82,7 @@ class GaussModel(nn.Module):
             colors = np.zeros_like(colors)
             opacities = inverse_sigmoid(0.9 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
+        self._id = torch.arange(fused_point_cloud.shape[0], device="cuda")
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
         self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
         self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
@@ -88,6 +91,10 @@ class GaussModel(nn.Module):
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
         return self
+
+    @property
+    def get_ids(self):
+        return self._id
 
     @property
     def get_scaling(self):

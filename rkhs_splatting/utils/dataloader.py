@@ -201,15 +201,6 @@ class TartanAirLoader(DataLoaderBase):
     def set_odometry(self, traj) -> None:
         self.odom = traj
 
-def torch_splatting_load(dataset, frame_ids, resize_factor=1.):
-    # return {
-    #     "rgb": src_rgbs[..., :3],
-    #     "camera": src_cameras,
-    #     "depth": src_depths,
-    #     "alpha": src_alphas,
-    # }
-    pass
-
 def load_dataset(params):
     if params['dataset']['type'] == 'tartanair':
         return TartanAirLoader(
