@@ -5,7 +5,7 @@ A pure pytorch implementation of 3D gaussian splatting.
 clone the repo
 
 ```bash
-pip install imageio accelerate einops matplotlib spatialmath-python icecream pytorch_memlab tensorboard
+pip install imageio accelerate einops matplotlib spatialmath-python icecream pytorch_memlab tensorboard opencv-python evo
 pip install jupyter ipywidgets widgetsnbextension plotly nbformat
 cd submodules/simple-knn
 pip install .

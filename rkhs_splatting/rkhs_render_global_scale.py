@@ -248,7 +248,7 @@ class RKHSRendererGlobalScale(nn.Module):
                     acc_alpha = (alpha * T).sum(dim=1)
                     tile_color = (T * alpha * sorted_color[None]).sum(dim=1) + (1-acc_alpha) * (1 if self.white_bkgd else 0)
                     tile_depth = ((T * alpha) * sorted_depths[None,:,None]).sum(dim=1)
-                    self.render_color[v:v+TILE_SIZE, u:u+TILE_SIZE] = tile_color.reshape(TILE_SIZE, TILE_SIZE, -1)
+                    self.render_color[v:v+TILE_SIZE, u:u+TILE_SIZE] = tile_color.reshape(TILE_SIZE, TILE_SIZE, -1).clip(min=0, max=1.0)
                     self.render_depth[v:v+TILE_SIZE, u:u+TILE_SIZE] = tile_depth.reshape(TILE_SIZE, TILE_SIZE, -1)
                     self.render_alpha[v:v+TILE_SIZE, u:u+TILE_SIZE] = acc_alpha.reshape(TILE_SIZE, TILE_SIZE, -1)
 

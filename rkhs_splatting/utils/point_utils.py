@@ -277,7 +277,7 @@ class PointCloud:
         return PointCloud(coords=new_coords, channels=new_channels)
 
     def select_channels(self, channel_names: List[str]) -> np.ndarray:
-        data = np.stack([preprocess(self.channels[name], name) for name in channel_names], axis=-1)
+        data = np.stack([self.channels[name] for name in channel_names], axis=-1)
         return data
 
     def nearest_points(self, points: np.ndarray, batch_size: int = 16384) -> np.ndarray:

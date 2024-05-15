@@ -38,7 +38,7 @@ class RKHSModelGlobalScale(GaussModel):
             create the guassian model from a color point cloud
         """
         points = pcd.coords
-        colors = pcd.select_channels(['R', 'G', 'B']) / 255.
+        colors = pcd.select_channels(['R', 'G', 'B'])
 
         fused_point_cloud = torch.tensor(np.asarray(points)).float().cuda()
         # fused_color = RGB2SH(torch.tensor(np.asarray(colors)).float().cuda())
