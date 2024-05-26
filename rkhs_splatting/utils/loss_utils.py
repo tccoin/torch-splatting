@@ -99,9 +99,11 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
             # if rgb_tile.shape[0]>0:
             #     ic(torch.min(rgb_tile), torch.max(rgb_tile))
 
-            scale_rgb_squared = 2**2
+            scale_rgb_squared = 4
             # scale3d_squared = 3**2 #0.015**2
-            geo_cut_off = exp(-0.5 *(0.1**2)*3/scale3d_squared)
+            # geo_cut_off = exp(-0.5 *(0.1**2)*3/scale3d_squared)
+            # geo_cut_off = exp(-0.5 *(0.1**2)*3/scale3d_squared)
+            geo_cut_off = exp(-0.5 *9)
 
             # 0: local map inner product
             # 1: current frame inner product
@@ -113,9 +115,9 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
                 rgb0 = (-0.5 * (rgb_tile_unsq1 - rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
                 rgb1 = (-0.5 * (gt_rgb_tile_unsq1 - gt_rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
                 rgb2 = (-0.5 * (rgb_tile_unsq1 - gt_rgb_tile_unsq0).pow(2).sum(-1) / scale_rgb_squared).exp()
-                # rgb0 = torch.where(rgb0 < rgb_cut_off, 1, rgb0)
-                # rgb1 = torch.where(rgb1 < rgb_cut_off, 1, rgb1)
-                # rgb2 = torch.where(rgb2 < rgb_cut_off, 1, rgb2)
+                # rgb0 = torch.where(rgb0 < rgb_cut_off, 0, rgb0)
+                # rgb1 = torch.where(rgb1 < rgb_cut_off, 0, rgb1)
+                # rgb2 = torch.where(rgb2 < rgb_cut_off, 0, rgb2)
             else:
                 rgb0 = 1
                 rgb1 = 1
@@ -126,9 +128,9 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
                 geo2 = (-0.5 * (mean3d_tile_unsq1 - gt_mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
 
                 # ic(mean3d_tile_unsq1.shape, mean3d_tile_unsq0.shape)
-                # geo0 = torch.where(geo0 < geo_cut_off, 1, geo0)
-                # geo1 = torch.where(geo1 < geo_cut_off, 1, geo1)
-                # geo2 = torch.where(geo2 < geo_cut_off, 1, geo2)
+                # geo0 = torch.where(geo0 < geo_cut_off, 0, geo0)
+                # geo1 = torch.where(geo1 < geo_cut_off, 0, geo1)
+                # geo2 = torch.where(geo2 < geo_cut_off, 0, geo2)
             else:
                 geo0 = 1
                 geo1 = 1

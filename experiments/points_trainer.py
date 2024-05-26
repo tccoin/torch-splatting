@@ -39,6 +39,8 @@ class GSSTrainer(Trainer):
         self.min_scale = kwargs.get('min_scale', 0.010)
         self.radii_multiplier = kwargs.get('radii_multiplier', 5)
         self.tile_size = kwargs.get('tile_size', 64)
+        self.outlier_threshold = kwargs.get('outlier_threshold', 0.1)
+        self.filtering_interval = kwargs.get('filtering_interval', 50)
     
     def on_train_step(self):
         ### debug
@@ -108,11 +110,12 @@ class GSSTrainer(Trainer):
 
         ### remove points with small inner product
         scores = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
-        mask = scores > 0.1
-        self.model.add_count(mask)
-        if self.step % 100 == 0:
-            mask = self.model.get_count>0
-            self.model.filter_points(mask)
+        count_mask = scores > self.outlier_threshold
+        self.model.add_count(count_mask)
+        if self.step>0 and self.step % self.filtering_interval == 0:
+            inlier_mask = self.model.get_count>0
+            self.model.filter_points(inlier_mask)
+            self.model.reset_id_and_count()
 
         ### calc loss
         l1_loss = loss_utils.l1_loss(out['render'], rgb)

@@ -34,14 +34,15 @@ class RKHSModelGlobalScale(GaussModel):
         return self._features
     
     def filter_points(self, mask):
-        # self._id = self._id[mask]
-        # self.count = self.count[mask]
-        self._xyz = self._xyz[mask]
-        self._features = self._features[mask]
-        self._scaling = self._scaling[mask]
-        self._rotation = self._rotation[mask]
-        self._opacity = self._opacity[mask]
-        self.max_radii2D = self.max_radii2D[mask]
+        mask = mask.cuda()
+        if self._trainable:
+            self._xyz = torch.nn.Parameter(self._xyz[mask])
+            self._features = torch.nn.Parameter(self._features[mask])
+            self._opacity = torch.nn.Parameter(self._opacity[mask])
+        else:
+            self._xyz = self._xyz[mask]
+            self._features = self._features[mask]
+            self._opacity = self._opacity[mask]
 
     def create_from_pcd(self, pcd:PointCloud, initial_scaling=0.005):
         """
@@ -77,17 +78,17 @@ class RKHSModelGlobalScale(GaussModel):
         if self._trainable:
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
+            self._opacity = nn.Parameter(opacities)
             if self._scale_trainable:
                 self._scaling = nn.Parameter(scales)
             else:
                 self._scaling = scales
-            self._opacity = nn.Parameter(opacities)
         else:
             self._xyz = fused_point_cloud
             self._features = torch.tensor(np.asarray(colors), device="cuda").float()
-            self._scaling = scales
             self._opacity = opacities
-        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+            self._scaling = scales
+        self.count = torch.zeros((self._xyz.shape[0]), device="cuda")
         return self
 
     def to_pc(self):
