@@ -94,7 +94,7 @@ class GSSTrainer(Trainer):
                 self.model.get_opacity,
                 self.model.get_scaling,
                 self.model.get_features,
-                point_ids=self.input_model.get_ids,
+                point_ids=self.model.get_ids,
                 radii_multiplier=self.radii_multiplier,
                 tile_size=self.tile_size
             )
@@ -107,7 +107,12 @@ class GSSTrainer(Trainer):
         rkhs_loss, inner_product_tiles = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
 
         ### remove points with small inner product
-        check_results = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
+        scores = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
+        mask = scores > 0.1
+        self.model.add_count(mask)
+        if self.step % 100 == 0:
+            mask = self.model.get_count>0
+            self.model.filter_points(mask)
 
         ### calc loss
         l1_loss = loss_utils.l1_loss(out['render'], rgb)

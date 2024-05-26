@@ -32,6 +32,16 @@ class RKHSModelGlobalScale(GaussModel):
     @property
     def get_features(self):
         return self._features
+    
+    def filter_points(self, mask):
+        # self._id = self._id[mask]
+        # self.count = self.count[mask]
+        self._xyz = self._xyz[mask]
+        self._features = self._features[mask]
+        self._scaling = self._scaling[mask]
+        self._rotation = self._rotation[mask]
+        self._opacity = self._opacity[mask]
+        self.max_radii2D = self.max_radii2D[mask]
 
     def create_from_pcd(self, pcd:PointCloud, initial_scaling=0.005):
         """

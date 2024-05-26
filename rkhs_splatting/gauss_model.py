@@ -90,6 +90,7 @@ class GaussModel(nn.Module):
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        self.count = torch.zeros((self._xyz.shape[0]), device="cuda")
         return self
 
     @property
@@ -120,6 +121,28 @@ class GaussModel(nn.Module):
     
     def get_covariance(self, scaling_modifier = 1):
         return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
+
+    @property
+    def get_count(self):
+        return self.count
+
+    def add_count(self, mask):
+        self.count[mask] += 1
+    
+    def reset_id_and_count(self):
+        self._id = torch.arange(self._xyz.shape[0], device="cuda")
+        self.count = torch.zeros_like(self._id, device="cuda")
+    
+    def filter_points(self, mask):
+        # self._id = self._id[mask]
+        # self.count = self.count[mask]
+        self._xyz = self._xyz[mask]
+        self._features_dc = self._features_dc[mask]
+        self._features_rest = self._features_rest[mask]
+        self._scaling = self._scaling[mask]
+        self._rotation = self._rotation[mask]
+        self._opacity = self._opacity[mask]
+        self.max_radii2D = self.max_radii2D[mask]
 
     def save_ply(self, path):
         from plyfile import PlyData, PlyElement

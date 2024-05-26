@@ -59,7 +59,8 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
 
     # local map norm, training image norm, inner product
     loss = [torch.tensor([0.]).requires_grad_(True).cuda() for i in range(3)]
-    inner_product_tiles = {v:{u:None for u in range(M)} for v in range(N)} # h,w,b,p
+    empty2d = torch.empty(0,2,device='cuda')
+    inner_product_tiles = {v:{u:empty2d for u in range(M)} for v in range(N)} # h,w,b,p
     for v in range(N):
         for u in range(M):
             
@@ -155,10 +156,18 @@ def rkhs_global_scale_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geom
     return loss, inner_product_tiles
 
 def check_rkhs_loss(n_points, id_tile, inner_product_tiles):
-    result = {
-        'ids_to_remove': []
-    }
-    return result
+    N = len(inner_product_tiles)
+    M = len(inner_product_tiles[0])
+    map_point_scores = torch.zeros(n_points, device='cuda')
+    for v in range(N):
+        for u in range(M):
+            inner_product = inner_product_tiles[v][u]
+            ids = id_tile[v][u]
+            B, P = inner_product.shape # map/train point size
+            tile_point_scores = inner_product.sum(dim=1)
+            for i in range(B):
+                map_point_scores[ids[i]] += tile_point_scores[i]
+    return map_point_scores
 
 def l1_loss(prediction, gt):
     return torch.abs((prediction - gt)).mean()
