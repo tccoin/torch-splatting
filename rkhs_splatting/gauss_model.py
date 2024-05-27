@@ -42,7 +42,7 @@ class GaussModel(nn.Module):
 
         self.rotation_activation = torch.nn.functional.normalize
     
-    def __init__(self, sh_degree : int=3, debug=False):
+    def __init__(self, sh_degree=3, debug=False, **kwargs):
         super(GaussModel, self).__init__()
         self.max_sh_degree = sh_degree  
         self._id = torch.empty(0)
@@ -133,7 +133,7 @@ class GaussModel(nn.Module):
         self._id = torch.arange(self._xyz.shape[0], device="cuda")
         self.count = torch.zeros_like(self._id, device="cuda")
     
-    def filter_points(self, mask):
+    def prune_points(self, mask):
         # self._id = self._id[mask]
         # self.count = self.count[mask]
         self._xyz = self._xyz[mask]

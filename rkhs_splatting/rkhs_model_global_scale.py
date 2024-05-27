@@ -33,12 +33,28 @@ class RKHSModelGlobalScale(GaussModel):
     def get_features(self):
         return self._features
     
-    def filter_points(self, mask):
+    def prune_points(self, mask, optimizer=None):
         mask = mask.cuda()
         if self._trainable:
-            self._xyz = torch.nn.Parameter(self._xyz[mask])
-            self._features = torch.nn.Parameter(self._features[mask])
-            self._opacity = torch.nn.Parameter(self._opacity[mask])
+            # update optimizer
+            new_parameters = {}
+            N = self._xyz.shape[0]
+            for group in optimizer.param_groups:
+                if group['params'][0].shape[0] != N:
+                    continue
+                # apply mask to the parameter
+                group['params'][0] = nn.Parameter(group['params'][0][mask])
+                new_parameters[group['name']] = group['params'][0]
+                # apply mask to the optimizer state
+                stored_state = optimizer.state.get(group['params'][0], None)
+                if stored_state is not None:
+                    stored_state['exp_avg'] = stored_state['exp_avg'][mask]
+                    stored_state['exp_avg_sq'] = stored_state['exp_avg_sq'][mask]
+                    optimizer.state[group['params'][0]] = stored_state
+            # update model
+            self._xyz = new_parameters['xyz']
+            self._features = new_parameters['features']
+            self._opacity = new_parameters['opacity']
         else:
             self._xyz = self._xyz[mask]
             self._features = self._features[mask]
@@ -75,12 +91,17 @@ class RKHSModelGlobalScale(GaussModel):
             opacities = inverse_sigmoid(0.9 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
         self._id = torch.arange(fused_point_cloud.shape[0], device="cuda")
+        parameters = []
         if self._trainable:
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
             self._opacity = nn.Parameter(opacities)
+            parameters.append({'name': 'xyz', 'params': [self._xyz]})
+            parameters.append({'name': 'features', 'params': [self._features]})
+            parameters.append({'name': 'opacity', 'params': [self._opacity]})
             if self._scale_trainable:
                 self._scaling = nn.Parameter(scales)
+                parameters.append({'name': 'scaling', 'params': [self._scaling]})
             else:
                 self._scaling = scales
         else:
@@ -89,6 +110,9 @@ class RKHSModelGlobalScale(GaussModel):
             self._opacity = opacities
             self._scaling = scales
         self.count = torch.zeros((self._xyz.shape[0]), device="cuda")
+
+        self.opt_parameters = parameters
+
         return self
 
     def to_pc(self):

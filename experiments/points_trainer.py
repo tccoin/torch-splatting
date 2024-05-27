@@ -114,7 +114,7 @@ class GSSTrainer(Trainer):
         self.model.add_count(count_mask)
         if self.step>0 and self.step % self.filtering_interval == 0:
             inlier_mask = self.model.get_count>0
-            self.model.filter_points(inlier_mask)
+            self.model.prune_points(inlier_mask, self.opt)
             self.model.reset_id_and_count()
 
         ### calc loss

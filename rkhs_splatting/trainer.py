@@ -74,7 +74,7 @@ class Trainer(object):
         self.with_tracking = with_tracking
         self.step = 0
 
-        self.opt = Adam(self.model.parameters(), lr=train_lr, betas=adam_betas)
+        self.opt = Adam(self.model.opt_parameters, lr=train_lr, betas=adam_betas)
         
         if self.accelerator.is_main_process:
             self.results_folder = Path(results_folder)
