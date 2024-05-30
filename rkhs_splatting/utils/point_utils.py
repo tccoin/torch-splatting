@@ -298,6 +298,9 @@ class PointCloud:
             all_indices.append(np.argmin(dists, axis=-1))
         return np.concatenate(all_indices, axis=0)
 
+    def __add__(self, other: "PointCloud") -> "PointCloud":
+        return self.combine(other)
+
     def combine(self, other: "PointCloud") -> "PointCloud":
         assert self.channels.keys() == other.channels.keys()
         return PointCloud(

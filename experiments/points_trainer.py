@@ -41,6 +41,7 @@ class GSSTrainer(Trainer):
         self.tile_size = kwargs.get('tile_size', 64)
         self.outlier_threshold = kwargs.get('outlier_threshold', 0.1)
         self.filtering_interval = kwargs.get('filtering_interval', 50)
+        self.rkhs_loss_func = kwargs.get('rkhs_loss_func', loss_utils.rkhs_loss_global_scale)
     
     def on_train_step(self):
         ### debug
@@ -87,9 +88,9 @@ class GSSTrainer(Trainer):
 
         ### render current frame
         with prof:
-            min_scaling = torch.scalar_tensor(self.min_scale, device="cuda")
-            if self.model.get_scaling < min_scaling:
-                self.model.set_scaling(min_scaling)
+            # min_scaling = torch.scalar_tensor(self.min_scale, device="cuda")
+            # if self.model.get_scaling < min_scaling:
+            #     self.model.set_scaling(min_scaling)
             out = self.gauss_render(
                 camera,
                 self.model.get_xyz,
@@ -106,7 +107,7 @@ class GSSTrainer(Trainer):
 
 
         ### calc rkhs loss
-        rkhs_loss, inner_product_tiles = loss_utils.rkhs_global_scale_loss(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
+        rkhs_loss, inner_product_tiles = self.rkhs_loss_func(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
 
         ### remove points with small inner product
         scores = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
@@ -121,8 +122,8 @@ class GSSTrainer(Trainer):
         l1_loss = loss_utils.l1_loss(out['render'], rgb)
         depth_loss = loss_utils.l1_loss(out['depth'][..., 0][mask], depth[mask])
         ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb)
-        # rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
-        rkhs_loss_total = rkhs_loss[0]-2*rkhs_loss[2]
+        rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
+        # rkhs_loss_total = rkhs_loss[0]-2*rkhs_loss[2]
         # rkhs_loss_total = -2*rkhs_loss[2]
         total_loss = rkhs_loss_total
         psnr = utils.img2psnr(out['render'], rgb)
@@ -164,6 +165,8 @@ class GSSTrainer(Trainer):
             rgb = input_frame['render'].detach().cpu().numpy()
             depth = input_frame['depth'].detach().cpu().numpy()[..., 0]
             # mask = (input_frame['alpha'] < 0.5).detach().cpu().numpy()
+
+        ic(self.model.get_scaling)
 
         out = self.gauss_render(
             camera,
