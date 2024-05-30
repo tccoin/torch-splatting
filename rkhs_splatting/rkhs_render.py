@@ -4,6 +4,7 @@ import torch.nn as nn
 import math
 from einops import reduce
 from icecream import ic
+from rkhs_splatting.utils.camera_utils import to_viewpoint_camera
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x))
@@ -63,11 +64,8 @@ def strip_lowerdiag(L):
     uncertainty[:, 5] = L[:, 2, 2]
     return uncertainty
 
-
 def strip_symmetric(sym):
     return strip_lowerdiag(sym)
-
-
 
 def build_covariance_3d(s, r):
     L = build_scaling_rotation(s, r)
@@ -75,8 +73,6 @@ def build_covariance_3d(s, r):
     return actual_covariance
     # symm = strip_symmetric(actual_covariance)
     # return symm
-
-
 
 def build_covariance_2d(
     mean3d, cov3d, viewmatrix, fov_x, fov_y, focal_x, focal_y
@@ -188,16 +184,19 @@ class RKHSRenderer(nn.Module):
         self.active_sh_degree = active_sh_degree
         self.debug = False
         self.white_bkgd = white_bkgd
-        self.pix_coord = torch.stack(torch.meshgrid(torch.arange(256), torch.arange(256), indexing='xy'), dim=-1).to('cuda')
 
-    def train(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
-        radii = torch.max(scale2d, dim=-1).values*3
+    def render(self, camera, point_ids, means3d, scale3d, means2d, scale2d, color, opacity, depths, radii_multiplier, tiles_only=False, tile_size=64):
+        pix_coord = torch.stack(torch.meshgrid(torch.arange(camera.image_width), torch.arange(camera.image_height), indexing='xy'), dim=-1).to('cuda')
+        radii = torch.max(scale2d, dim=-1).values*radii_multiplier
         rect = get_rect(means2d, radii, width=camera.image_width, height=camera.image_height)
 
-        TILE_SIZE = 64
+        if not tiles_only:
+            self.render_color = torch.ones(*pix_coord.shape[:2], 3).to('cuda')
+            self.render_depth = torch.zeros(*pix_coord.shape[:2], 1).to('cuda')
+            self.render_alpha = torch.zeros(*pix_coord.shape[:2], 1).to('cuda')
 
-        h_tile = camera.image_height//TILE_SIZE
-        w_tile = camera.image_width//TILE_SIZE
+        h_tile = camera.image_height//tile_size
+        w_tile = camera.image_width//tile_size
 
         empty1d = torch.empty(0,1,device='cuda')
         empty2d = torch.empty(0,2,device='cuda')
@@ -206,103 +205,46 @@ class RKHSRenderer(nn.Module):
         self.scale2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
         self.mean3d_tile = {v:{u:empty3d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
         self.label_tile = {v:{u:[empty3d,empty1d,empty1d] for u in range(w_tile)} for v in range(h_tile)} # h,w,n,5 (3 for RGB, 1 for depth, 1 for opacity)
+        if point_ids is not None:
+            self.id_tile = {v:{u:empty1d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,1
 
-        for v in range(0, camera.image_height, TILE_SIZE):
-            for u in range(0, camera.image_width, TILE_SIZE):
+        for v in range(0, camera.image_height, tile_size):
+            for u in range(0, camera.image_width, tile_size):
                 # check if the rectangle penetrate the tile
                 over_tl = rect[0][..., 0].clip(min=u), rect[0][..., 1].clip(min=v)
-                over_br = rect[1][..., 0].clip(max=u+TILE_SIZE-1), rect[1][..., 1].clip(max=v+TILE_SIZE-1)
+                over_br = rect[1][..., 0].clip(max=u+tile_size-1), rect[1][..., 1].clip(max=v+tile_size-1)
                 in_mask = (over_br[0] > over_tl[0]) & (over_br[1] > over_tl[1]) # 3D gaussian in the tile 
-                
-                if not in_mask.sum() > 0:
-                    continue
 
-                sorted_depths, index = torch.sort(depths[in_mask])
-                sorted_means2D = means2d[in_mask][index]
-                sorted_scale2d = scale2d[in_mask][index] # P 2
-                sorted_opacity = opacity[in_mask][index]
-                sorted_color = color[in_mask][index]
-
-                self.mean3d_tile[v//TILE_SIZE][u//TILE_SIZE] = means3d[in_mask][index]
-                self.mean2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_means2D
-                self.scale2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_scale2d
-                self.label_tile[v//TILE_SIZE][u//TILE_SIZE] = [sorted_color, sorted_depths, sorted_opacity]
-
-        tile_data = {
-            "mean2d": self.mean2d_tile,
-            "scale2d": self.scale2d_tile,
-            "mean3d": self.mean3d_tile,
-            "label": self.label_tile
-        }
-
-        return {
-            "tiles": tile_data,
-        }
-    
-    def render(self, camera, means3d, scale3d, means2d, scale2d, color, opacity, depths):
-        radii = torch.max(scale2d, dim=-1).values*3
-        rect = get_rect(means2d, radii, width=camera.image_width, height=camera.image_height)
-        
-        self.render_color = torch.ones(*self.pix_coord.shape[:2], 3).to('cuda')
-        self.render_depth = torch.zeros(*self.pix_coord.shape[:2], 1).to('cuda')
-        self.render_alpha = torch.zeros(*self.pix_coord.shape[:2], 1).to('cuda')
-
-        TILE_SIZE = 64
-
-        h_tile = camera.image_height//TILE_SIZE
-        w_tile = camera.image_width//TILE_SIZE
-
-        empty1d = torch.empty(0,1,device='cuda')
-        empty2d = torch.empty(0,2,device='cuda')
-        empty3d = torch.empty(0,3,device='cuda')
-        self.mean2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
-        self.scale2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
-        self.mean3d_tile = {v:{u:empty3d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
-        self.label_tile = {v:{u:[empty3d,empty1d,empty1d] for u in range(w_tile)} for v in range(h_tile)} # h,w,n,5 (3 for RGB, 1 for depth, 1 for opacity)
-
-        for v in range(0, camera.image_height, TILE_SIZE):
-            for u in range(0, camera.image_width, TILE_SIZE):
-                # check if the rectangle penetrate the tile
-                over_tl = rect[0][..., 0].clip(min=u), rect[0][..., 1].clip(min=v)
-                over_br = rect[1][..., 0].clip(max=u+TILE_SIZE-1), rect[1][..., 1].clip(max=v+TILE_SIZE-1)
-                in_mask = (over_br[0] > over_tl[0]) & (over_br[1] > over_tl[1]) # 3D gaussian in the tile 
-                
                 if not in_mask.sum() > 0:
                     continue
 
                 P = in_mask.sum()
-                tile_coord = self.pix_coord[v:v+TILE_SIZE, u:u+TILE_SIZE].flatten(0,-2)
+                tile_coord = pix_coord[v:v+tile_size, u:u+tile_size].flatten(0,-2)
                 sorted_depths, index = torch.sort(depths[in_mask])
                 sorted_means2D = means2d[in_mask][index]
                 sorted_scale2d = scale2d[in_mask][index] # P 2
                 sorted_scale2d_squared = torch.max(sorted_scale2d, dim=-1).values**2 # make it 1d
                 sorted_opacity = opacity[in_mask][index]
                 sorted_color = color[in_mask][index]
-                dx = (tile_coord[:,None,:] - sorted_means2D[None,:]) # B P 2
-                
-                
-                gauss_weight = torch.exp(-0.5 * dx.pow(2).sum(-1) /sorted_scale2d_squared)
 
-                
-                alpha = (gauss_weight[..., None] * sorted_opacity[None]).clip(max=0.99) # B P 1
-                T = torch.cat([torch.ones_like(alpha[:,:1]), 1-alpha[:,:-1]], dim=1).cumprod(dim=1)
-                acc_alpha = (alpha * T).sum(dim=1)
-                tile_color = (T * alpha * sorted_color[None]).sum(dim=1) + (1-acc_alpha) * (1 if self.white_bkgd else 0)
-                tile_depth = ((T * alpha) * sorted_depths[None,:,None]).sum(dim=1)
-                self.render_color[v:v+TILE_SIZE, u:u+TILE_SIZE] = tile_color.reshape(TILE_SIZE, TILE_SIZE, -1)
-                self.render_depth[v:v+TILE_SIZE, u:u+TILE_SIZE] = tile_depth.reshape(TILE_SIZE, TILE_SIZE, -1)
-                self.render_alpha[v:v+TILE_SIZE, u:u+TILE_SIZE] = acc_alpha.reshape(TILE_SIZE, TILE_SIZE, -1)
+                if point_ids is not None:
+                    self.id_tile[v//tile_size][u//tile_size] = point_ids[in_mask][index]
+                self.mean3d_tile[v//tile_size][u//tile_size] = means3d[in_mask][index]
+                self.mean2d_tile[v//tile_size][u//tile_size] = sorted_means2D
+                self.scale2d_tile[v//tile_size][u//tile_size] = sorted_scale2d
+                self.label_tile[v//tile_size][u//tile_size] = [sorted_color, sorted_depths, sorted_opacity]
 
-                self.mean3d_tile[v//TILE_SIZE][u//TILE_SIZE] = means3d[in_mask][index]
-                self.mean2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_means2D
-                self.scale2d_tile[v//TILE_SIZE][u//TILE_SIZE] = sorted_scale2d
-                self.label_tile[v//TILE_SIZE][u//TILE_SIZE] = [sorted_color, sorted_depths, sorted_opacity]
-
-                # value, index = torch.max(sorted_color, dim=0)
-                # ic(sorted_opacity.max())
-                # ic(alpha.max())
-                # ic(torch.max(sorted_color))
-                # ic(torch.max(tile_color))
+                if not tiles_only:
+                    dx = (tile_coord[:,None,:] - sorted_means2D[None,:]) # B P 2
+                    gauss_weight = torch.exp(-0.5 * dx.pow(2).sum(-1) /sorted_scale2d_squared)
+                    alpha = (gauss_weight[..., None] * sorted_opacity[None]).clip(max=0.99) # B P 1
+                    T = torch.cat([torch.ones_like(alpha[:,:1]), 1-alpha[:,:-1]], dim=1).cumprod(dim=1)
+                    acc_alpha = (alpha * T).sum(dim=1)
+                    tile_color = (T * alpha * sorted_color[None]).sum(dim=1) + (1-acc_alpha) * (1 if self.white_bkgd else 0)
+                    tile_depth = ((T * alpha) * sorted_depths[None,:,None]).sum(dim=1)
+                    self.render_color[v:v+tile_size, u:u+tile_size] = tile_color.reshape(tile_size, tile_size, -1).clip(min=0, max=1.0)
+                    self.render_depth[v:v+tile_size, u:u+tile_size] = tile_depth.reshape(tile_size, tile_size, -1)
+                    self.render_alpha[v:v+tile_size, u:u+tile_size] = acc_alpha.reshape(tile_size, tile_size, -1)
 
         tile_data = {
             "mean2d": self.mean2d_tile,
@@ -310,24 +252,27 @@ class RKHSRenderer(nn.Module):
             "mean3d": self.mean3d_tile,
             "label": self.label_tile
         }
+        if point_ids is not None:
+            tile_data['id'] = self.id_tile
 
-        return {
-            "render": self.render_color,
-            "depth": self.render_depth,
-            "alpha": self.render_alpha,
-            "visiility_filter": radii > 0,
-            "radii": radii,
-            "tiles": tile_data,
-        }
+        if tiles_only:
+            return {
+                "tiles": tile_data,
+                "camera": camera
+            }
+        else:
+            return {
+                "render": self.render_color,
+                "depth": self.render_depth,
+                "alpha": self.render_alpha,
+                "visiility_filter": radii > 0,
+                "radii": radii,
+                "tiles": tile_data,
+                "camera": camera
+            }
 
+    def forward(self, camera, means3d, opacity, scale3d, features, mode='render', **kwargs):
 
-    def forward(self, camera, pc, mode='render', **kwargs):
-        means3d = pc.get_xyz
-        opacity = pc.get_opacity
-        scales = pc.get_scaling
-        # rotations = pc.get_rotation
-        rgbs = pc.get_features
-        
         if USE_PROFILE:
             prof = profiler.record_function
         else:
@@ -342,9 +287,7 @@ class RKHSRenderer(nn.Module):
             depths = mean_view[:,2]
         
         with prof("build color"):
-            color = rgbs
-        
-        scale3d = scales
+            color = features
         
         with prof("scale 2d"):
             scale2d = build_scale_2d(
@@ -360,12 +303,16 @@ class RKHSRenderer(nn.Module):
             mean_coord_y = ((mean_ndc[..., 1] + 1) * camera.image_height - 1.0) * 0.5
             means2d = torch.stack([mean_coord_x, mean_coord_y], dim=-1)
 
-            ic(scale3d.shape, scale2d.shape, means2d.shape)
+            # ic(scale2d.shape, means2d.shape)
+
+        radii_multiplier = kwargs.get('radii_multiplier', 5)
+        tile_size = kwargs.get('tile_size', 64)
 
         with prof("render"):
             if mode=='render':
                 rets = self.render(
-                    camera = camera, 
+                    camera=camera,
+                    point_ids=kwargs.get('point_ids', None),
                     means3d=means3d,
                     scale3d=scale3d,
                     means2d=means2d,
@@ -373,10 +320,13 @@ class RKHSRenderer(nn.Module):
                     color=color,
                     opacity=opacity, 
                     depths=depths,
+                    radii_multiplier=radii_multiplier,
+                    tile_size=tile_size
                 )
             elif mode=='train':
-                rets = self.train(
-                    camera = camera, 
+                rets = self.render(
+                    camera=camera,
+                    point_ids=kwargs.get('point_ids', None),
                     means3d=means3d,
                     scale3d=scale3d,
                     means2d=means2d,
@@ -384,5 +334,9 @@ class RKHSRenderer(nn.Module):
                     color=color,
                     opacity=opacity, 
                     depths=depths,
+                    tiles_only=True,
+                    radii_multiplier=radii_multiplier,
+                    tile_size=tile_size
                 )
         return rets
+
