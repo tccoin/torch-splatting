@@ -96,12 +96,12 @@ class RKHSModelGlobalScale(GaussModel):
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
             self._opacity = nn.Parameter(opacities)
-            parameters.append({'name': 'xyz', 'params': [self._xyz]})
-            parameters.append({'name': 'features', 'params': [self._features]})
-            parameters.append({'name': 'opacity', 'params': [self._opacity]})
+            parameters.append({'name': 'xyz', 'params': [self._xyz], 'lr': 3e-2})
+            parameters.append({'name': 'features', 'params': [self._features], 'lr': 1e-2})
+            parameters.append({'name': 'opacity', 'params': [self._opacity], 'lr': 1e-2})
             if self._scale_trainable:
                 self._scaling = nn.Parameter(scales)
-                parameters.append({'name': 'scaling', 'params': [self._scaling]})
+                parameters.append({'name': 'scaling', 'params': [self._scaling], 'lr': 3e-4})
             else:
                 self._scaling = scales
         else:
