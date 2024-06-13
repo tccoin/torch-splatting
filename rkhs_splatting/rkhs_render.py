@@ -198,11 +198,13 @@ class RKHSRenderer(nn.Module):
         h_tile = camera.image_height//tile_size
         w_tile = camera.image_width//tile_size
 
+        empty = torch.empty(0,device='cuda')
         empty1d = torch.empty(0,1,device='cuda')
         empty2d = torch.empty(0,2,device='cuda')
         empty3d = torch.empty(0,3,device='cuda')
         self.mean2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
         self.scale2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
+        self.scale3d_tile = {v:{u:empty for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
         self.mean3d_tile = {v:{u:empty3d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
         self.label_tile = {v:{u:[empty3d,empty1d,empty1d] for u in range(w_tile)} for v in range(h_tile)} # h,w,n,5 (3 for RGB, 1 for depth, 1 for opacity)
         if point_ids is not None:
@@ -232,6 +234,7 @@ class RKHSRenderer(nn.Module):
                 self.mean3d_tile[v//tile_size][u//tile_size] = means3d[in_mask][index]
                 self.mean2d_tile[v//tile_size][u//tile_size] = sorted_means2D
                 self.scale2d_tile[v//tile_size][u//tile_size] = sorted_scale2d
+                self.scale3d_tile[v//tile_size][u//tile_size] = scale3d[in_mask][index]
                 self.label_tile[v//tile_size][u//tile_size] = [sorted_color, sorted_depths, sorted_opacity]
 
                 if not tiles_only:
@@ -249,6 +252,7 @@ class RKHSRenderer(nn.Module):
         tile_data = {
             "mean2d": self.mean2d_tile,
             "scale2d": self.scale2d_tile,
+            "scale3d": self.scale3d_tile,
             "mean3d": self.mean3d_tile,
             "label": self.label_tile
         }

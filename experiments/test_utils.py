@@ -103,9 +103,10 @@ def load_sample_dataset(folder, frame_ranges, resize_factor=0.5):
     for key,value in data.items():
         data[key] = value[frame_ranges[0]:frame_ranges[1]]
     for i in range(N):
-        train_pc = get_point_clouds(data['camera'][i].unsqueeze(0), data['depth'][i].unsqueeze(0), data['alpha'][i].unsqueeze(0), data['rgb'][i].unsqueeze(0))
+        camera = to_viewpoint_camera(data['camera'][i])
+        train_pc = get_point_clouds(camera, data['depth'][i].unsqueeze(0), data['alpha'][i].unsqueeze(0), data['rgb'][i].unsqueeze(0))
         train_pcs.append(train_pc)
-        cameras.append(to_viewpoint_camera(data['camera'][i]))
+        cameras.append(camera)
     return train_pcs, cameras
 
 def load_custom_dataset(dataset, frame_ranges, resize_factor=1):

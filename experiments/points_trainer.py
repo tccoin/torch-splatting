@@ -33,6 +33,7 @@ class GSSTrainer(Trainer):
         if self.writer:
             self.tensorboard_writer = SummaryWriter(log_dir=self.results_folder)
         self.use_input_frames = kwargs.get('use_input_frames')
+        self.use_render = kwargs.get('use_render')
         self.input_frames = kwargs.get('input_frames')
         self.use_rkhs_rgb = kwargs.get('use_rkhs_rgb')
         self.use_rkhs_geo = kwargs.get('use_rkhs_geo')
@@ -59,8 +60,7 @@ class GSSTrainer(Trainer):
             alpha = self.data['alpha'][ind]
             mask = (self.data['alpha'][ind] > 0.5)
             # render input frame
-            points = get_point_clouds(self.data['camera'][ind].unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
-            self.input_model.set_scaling(self.model.get_scaling)
+            points = get_point_clouds(camera, depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
             self.input_model.create_from_pcd(points, initial_scaling=self.model.get_scaling)
             input_frame = self.gauss_render(
                 camera,
@@ -72,13 +72,37 @@ class GSSTrainer(Trainer):
                 radii_multiplier=self.radii_multiplier,
                 tile_size=self.tile_size
             )
+        elif self.use_render:
+            ind = np.random.choice(len(self.input_frames))
+            input_frame = self.input_frames[ind]
+            camera = input_frame['camera']
+            rgb = input_frame['render'].detach()
+            depth = input_frame['depth'].detach()[..., 0]
+            alpha = input_frame['alpha'].detach()[..., 0]
+            mask = (alpha[..., 0] < 0.5).detach()
+            # render input frame
+            points = get_point_clouds(camera, depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+            # self.input_model.set_scaling(self.model.get_scaling.item())
+            self.input_model.create_from_pcd(points, initial_scaling=1)
+            input_frame = self.gauss_render(
+                camera,
+                self.input_model.get_xyz,
+                self.input_model.get_opacity,
+                self.input_model.get_scaling,
+                self.input_model.get_features,
+                mode='train',
+                radii_multiplier=self.radii_multiplier,
+                tile_size=self.tile_size
+            )
+
         else:
             ind = np.random.choice(len(self.input_frames))
             input_frame = self.input_frames[ind]
             camera = input_frame['camera']
             rgb = input_frame['render'].detach()
             depth = input_frame['depth'].detach()[..., 0]
-            mask = (input_frame['alpha'][..., 0] < 0.5).detach()
+            alpha = input_frame['alpha'].detach()[..., 0]
+            mask = (alpha[..., 0] < 0.5).detach()
 
         ### profiling tools
         if USE_PROFILE:
@@ -166,7 +190,7 @@ class GSSTrainer(Trainer):
             depth = input_frame['depth'].detach().cpu().numpy()[..., 0]
             # mask = (input_frame['alpha'] < 0.5).detach().cpu().numpy()
 
-        ic(self.model.get_scaling)
+        # ic(self.model.get_scaling)
 
         out = self.gauss_render(
             camera,

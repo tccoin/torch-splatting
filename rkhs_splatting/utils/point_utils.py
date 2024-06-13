@@ -32,12 +32,14 @@ def get_rays_single_image(H, W, intrinsics, c2w, render_stride=1):
         return rays_o, rays_d
 
 
-def get_point_clouds(cameras, depths, alphas, rgbs=None):
+def get_point_clouds(camera, depths, alphas, rgbs=None):
     """
     depth map to point cloud
     """
-    Hs, Ws, intrinsics, c2ws = parse_camera(cameras)
-    W, H = int(Ws[0].item()), int(Hs[0].item())
+    W = camera.image_width
+    H = camera.image_height
+    intrinsics = camera.intrinsic.unsqueeze(0)
+    c2ws = camera.c2w.unsqueeze(0)
     assert (depths.shape == alphas.shape)
     coords = []
     rgbas = []

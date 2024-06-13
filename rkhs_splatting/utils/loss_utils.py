@@ -147,6 +147,7 @@ def rkhs_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geometry=True, us
     mean2d_tiles = prediction_tiles['mean2d']
     mean3d_tiles = prediction_tiles['mean3d']
     scale2d_tiles = prediction_tiles['scale2d']
+    scale3d_tiles = prediction_tiles['scale3d']
     label_tiles = prediction_tiles['label']
 
     gt_mean2d_tiles = gt_tiles['mean2d']
@@ -160,13 +161,18 @@ def rkhs_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geometry=True, us
     # ic(scale3d)
 
     scale_rgb_squared = 4
-    scale3d_squared = scale3d**2
+    # scale3d_squared = 0.01**2
     # geo_cut_off = exp(-0.5 *9)
 
     # local map norm, training image norm, inner product
     loss = [torch.tensor([0.]).requires_grad_(True).cuda() for i in range(3)]
     empty2d = torch.empty(0,2,device='cuda')
     inner_product_tiles = {v:{u:empty2d for u in range(M)} for v in range(N)} # h,w,b,p
+
+    n_loss0 = 0
+    n_loss1 = 0
+    n_loss2 = 0
+
     for v in range(N):
         for u in range(M):
 
@@ -190,6 +196,7 @@ def rkhs_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geometry=True, us
             mean3d_tile = mean3d_tiles[v][u]
             mean3d_tile_unsq0 = mean3d_tile.unsqueeze(0)
             mean3d_tile_unsq1 = mean3d_tile.unsqueeze(1)
+            scale3d_tile = scale3d_tiles[v][u]
 
             # 0: local map inner product
             # 1: current frame inner product
@@ -207,9 +214,21 @@ def rkhs_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geometry=True, us
                 rgb1 = 1
                 rgb2 = 1
             if use_geometry:
-                geo0 = (-0.5 * (mean3d_tile_unsq1 - mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
-                geo1 = (-0.5 * (gt_mean3d_tile_unsq1 - gt_mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
-                geo2 = (-0.5 * (mean3d_tile_unsq1 - gt_mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_squared).exp()
+
+                # ic(scale3d_tile.shape)
+                scale3d_tile_squared = scale3d_tile.reshape(-1,1)**2
+
+                # tmp = (mean3d_tile_unsq1 - mean3d_tile_unsq0).pow(2).sum(-1)
+                # ic(tmp.shape, tmp)
+                # ic(scale3d_tile_squared.shape)
+                # scale3d_tile_squared = scale3d_tile_squared
+                # ic(scale3d_tile_squared)
+                # ic(tmp / scale3d_tile_squared)
+
+                geo0 = (-0.5 * (mean3d_tile_unsq1 - mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_tile_squared).exp()
+                geo2 = (-0.5 * (mean3d_tile_unsq1 - gt_mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_tile_squared).exp()
+                scale3d_tile_squared = scale3d_tile.mean()**2
+                geo1 = (-0.5 * (gt_mean3d_tile_unsq1 - gt_mean3d_tile_unsq0).pow(2).sum(-1) / scale3d_tile_squared).exp()
 
                 # ic(mean3d_tile_unsq1.shape, mean3d_tile_unsq0.shape)
                 # geo0 = torch.where(geo0 < geo_cut_off, 0, geo0)
@@ -226,9 +245,17 @@ def rkhs_loss(prediction_tiles, gt_tiles, gt_rgb, scale3d, use_geometry=True, us
 
             inner_product_tiles[v][u] = geo2
 
+            n_loss0 += loss0.numel()
+            n_loss1 += loss1.numel()
+            n_loss2 += loss2.numel()
+
             loss[0] = loss0.sum() + loss[0]
             loss[1] = loss1.sum() + loss[1]
             loss[2] = loss2.sum() + loss[2]
+
+    loss[0] /= n_loss0
+    loss[1] /= n_loss1
+    loss[2] /= n_loss2
 
     return loss, inner_product_tiles
 

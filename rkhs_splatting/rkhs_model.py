@@ -13,7 +13,7 @@ class RKHSModel(GaussModel):
     """
     The scale of all Gaussians is the same in this model
     """
-
+    
     def __init__(self, sh_degree : int=3, debug=False, trainable=True, scale_trainable=False):
         super(RKHSModel, self).__init__(sh_degree, debug)
         self._trainable = trainable
@@ -28,11 +28,11 @@ class RKHSModel(GaussModel):
             self._scaling = nn.Parameter(scaling)
         else:
             self._scaling = scaling
-
+    
     @property
     def get_features(self):
         return self._features
-
+    
     def prune_points(self, mask, optimizer=None):
         mask = mask.cuda()
         if self._trainable:
@@ -55,10 +55,15 @@ class RKHSModel(GaussModel):
             self._xyz = new_parameters['xyz']
             self._features = new_parameters['features']
             self._opacity = new_parameters['opacity']
+            if self._scale_trainable:
+                self._scaling = new_parameters['scaling']
+            else:
+                self._scaling = self._scaling[mask]
         else:
             self._xyz = self._xyz[mask]
             self._features = self._features[mask]
             self._opacity = self._opacity[mask]
+            self._scaling = self._scaling[mask]
 
     def create_from_pcd(self, pcd:PointCloud, initial_scaling=0.005):
         """
@@ -96,12 +101,12 @@ class RKHSModel(GaussModel):
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
             self._opacity = nn.Parameter(opacities)
-            parameters.append({'name': 'xyz', 'params': [self._xyz]})
-            parameters.append({'name': 'features', 'params': [self._features]})
-            parameters.append({'name': 'opacity', 'params': [self._opacity]})
+            parameters.append({'name': 'xyz', 'params': [self._xyz], 'lr': 3e-2})
+            parameters.append({'name': 'features', 'params': [self._features], 'lr': 1e-2})
+            parameters.append({'name': 'opacity', 'params': [self._opacity], 'lr': 1e-2})
             if self._scale_trainable:
                 self._scaling = nn.Parameter(scales)
-                parameters.append({'name': 'scaling', 'params': [self._scaling]})
+                parameters.append({'name': 'scaling', 'params': [self._scaling], 'lr': 1e-3})
             else:
                 self._scaling = scales
         else:
