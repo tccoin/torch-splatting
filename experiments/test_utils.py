@@ -127,7 +127,8 @@ def load_custom_dataset(dataset, frame_ranges, resize_factor=1):
         c2w = dataset.read_current_ground_truth()
         camera_intrinsics = [x*resize_factor for x in dataset.camera]
         camera_data = create_camera(*camera_intrinsics, c2w)
-        train_pc = get_point_clouds(camera_data.unsqueeze(0), depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+        camera = to_viewpoint_camera(camera_data)
+        train_pc = get_point_clouds(camera, depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
         train_pcs.append(train_pc)
-        cameras.append(to_viewpoint_camera(camera_data))
+        cameras.append(camera)
     return train_pcs, cameras
