@@ -24,7 +24,7 @@ class RKHSModel(GaussModel):
 
     @property
     def get_scaling(self):
-        return self._scaling
+        return self._scaling.clip(1e-5)
 
     def set_scaling(self, scaling):
         if self._trainable and self._scale_trainable:
@@ -107,12 +107,12 @@ class RKHSModel(GaussModel):
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
             self._opacity = nn.Parameter(opacities)
-            parameters.append({'name': 'xyz', 'params': [self._xyz], 'lr': 3e-2})
-            parameters.append({'name': 'features', 'params': [self._features], 'lr': 1e-2})
-            parameters.append({'name': 'opacity', 'params': [self._opacity], 'lr': 1e-2})
+            parameters.append({'name': 'xyz', 'params': [self._xyz], 'lr': 1e-2})#1e-2
+            parameters.append({'name': 'features', 'params': [self._features], 'lr': 3e-3})#3e-3
+            parameters.append({'name': 'opacity', 'params': [self._opacity], 'lr': 3e-3})#3e-3
             if self._scale_trainable:
                 self._scaling = nn.Parameter(scales)
-                parameters.append({'name': 'scaling', 'params': [self._scaling], 'lr': 1e-3})
+                parameters.append({'name': 'scaling', 'params': [self._scaling], 'lr': 1e-5})#1e-4
             else:
                 self._scaling = scales
         else:
@@ -193,15 +193,15 @@ class RKHSModel(GaussModel):
             optimizer,
             world_extent=1,
             max_screen_size=20,
-            grad_threshold=0.003,#0.0002
-            dense_percent=0.001,#0.01
+            grad_threshold=1e-3,#1e-3
+            dense_percent=0.3,#0.3
             split_num=2,
         ):
         # mask
         avg_grad = self.grad_sum/self.grad_update_count
-        ic(avg_grad)
-        dense_threshold = 0
-        # dense_threshold = dense_percent * world_extent
+        # ic(avg_grad)
+        # dense_threshold = 0
+        dense_threshold = dense_percent * world_extent
         large_grad_mask = avg_grad > grad_threshold
         split_mask = large_grad_mask & (self.get_scaling > dense_threshold)
         clone_mask = large_grad_mask & (self.get_scaling <= dense_threshold)
@@ -215,7 +215,11 @@ class RKHSModel(GaussModel):
         new_features = self.get_features[split_mask].repeat(N, 1)
         new_opacity = self.get_opacity[split_mask].repeat(N, 1)
         # clone
-        new_xyz = torch.cat([new_xyz, self.get_xyz[clone_mask]])
+        stds = self.get_scaling[clone_mask].unsqueeze(-1).repeat(1,3)
+        means = torch.zeros_like(stds, device="cuda")
+        # ic(stds)
+        samples = torch.normal(mean=means, std=stds)
+        new_xyz = torch.cat([new_xyz, samples+self.get_xyz[clone_mask]])
         new_scaling = torch.cat([new_scaling, self.get_scaling[clone_mask]])
         new_features = torch.cat([new_features, self.get_features[clone_mask]])
         new_opacity = torch.cat([new_opacity, self.get_opacity[clone_mask]])
