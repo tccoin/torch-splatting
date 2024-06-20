@@ -43,6 +43,7 @@ class GSSTrainer(Trainer):
         self.outlier_threshold = kwargs.get('outlier_threshold', 0.1)
         self.filtering_interval = kwargs.get('filtering_interval', 50)
         self.rkhs_loss_func = kwargs.get('rkhs_loss_func', loss_utils.rkhs_loss_global_scale)
+        self.densification_interval = 50 #kwargs.get('densification_interval', 100)
     
     def on_train_step(self):
         ### debug
@@ -125,22 +126,15 @@ class GSSTrainer(Trainer):
                 radii_multiplier=self.radii_multiplier,
                 tile_size=self.tile_size
             )
+            self._out = out
 
         if USE_PROFILE:
             print(prof.key_averages(group_by_stack_n=True).table(sort_by='self_cuda_time_total', row_limit=20))
 
 
         ### calc rkhs loss
-        rkhs_loss, inner_product_tiles = self.rkhs_loss_func(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb)
-
-        ### remove points with small inner product
-        scores = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
-        count_mask = scores > self.outlier_threshold
-        self.model.add_count(count_mask)
-        if self.step>0 and self.step % self.filtering_interval == 0:
-            inlier_mask = self.model.get_count>0
-            self.model.prune_points(inlier_mask, self.opt)
-            self.model.reset_id_and_count()
+        rkhs_loss, inner_product_tiles = self.rkhs_loss_func(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb) 
+        self._inner_product_tiles = inner_product_tiles
 
         ### calc loss
         l1_loss = loss_utils.l1_loss(out['render'], rgb)
@@ -170,7 +164,28 @@ class GSSTrainer(Trainer):
             # self.tensorboard_writer.add_graph(self.gauss_render, [camera_data, self.model.get_xyz, self.model.get_opacity, self.model.get_scaling, self.model.get_features])
             # self.tensorboard_writer.add_image('rgb/render', out['render'], self.step)
 
+        self.opt.zero_grad()
+
         return total_loss, log_dict
+    
+    def after_backward_step(self):
+        out = self._out
+        inner_product_tiles = self._inner_product_tiles
+        ### densify points
+        # @TODO: share prune mask
+        self.model.add_densification_stats()
+
+        ### remove points with small inner product
+        scores = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
+        count_mask = scores > self.outlier_threshold
+        self.model.add_count(count_mask)
+        if self.step>0 and self.step % self.filtering_interval == 0:
+            inlier_mask = self.model.get_count>0
+            self.model.prune_points(inlier_mask, self.opt)
+            self.model.reset_id_and_count()
+
+        if self.step>0 and self.step % self.densification_interval == 0:
+            self.model.densify(self.opt)
 
     def on_evaluate_step(self, **kwargs):
         import matplotlib.pyplot as plt

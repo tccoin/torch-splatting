@@ -131,6 +131,9 @@ class Trainer(object):
 
     def on_evaluate_step(self):
         raise NotImplementedError('not implemeted')
+    
+    def after_backward_step(self):
+        pass
 
     def train(self, prof=None):
         accelerator = self.accelerator
@@ -154,6 +157,8 @@ class Trainer(object):
                         total_loss += loss
 
                     self.accelerator.backward(loss)
+                
+                self.after_backward_step()
 
                 # all reduce to get the total loss
                 total_loss = accelerator.reduce(total_loss)
@@ -166,7 +171,7 @@ class Trainer(object):
                 pbar.set_description(log_str)
 
                 self.opt.step()
-                self.opt.zero_grad()
+                # self.opt.zero_grad()
 
                 self.step += 1
                 if accelerator.is_main_process:
