@@ -6,6 +6,7 @@ from simple_knn._C import distCUDA2
 from gaussian_splatting.utils.point_utils import PointCloud
 from gaussian_splatting.gauss_render import strip_symmetric, inverse_sigmoid, build_scaling_rotation
 from gaussian_splatting.utils.sh_utils import RGB2SH
+from rkhs_splatting.utils.trainer_utils import get_expon_lr_func
 from icecream import ic
 
 class GaussModel(nn.Module):
@@ -41,6 +42,9 @@ class GaussModel(nn.Module):
         self.inverse_opacity_activation = inverse_sigmoid
 
         self.rotation_activation = torch.nn.functional.normalize
+
+        self.opt_parameters = {}
+        self.opt_lr = {}
     
     def __init__(self, sh_degree=3, debug=False, **kwargs):
         super(GaussModel, self).__init__()
@@ -54,6 +58,31 @@ class GaussModel(nn.Module):
         self._opacity = torch.empty(0)
         self.setup_functions()
         self.debug = debug
+
+    def update_learning_rate(self, new_lr):
+        if new_lr is not None:
+            for group_name, lr_value in new_lr.items():
+                if type(lr_value) == dict:
+                    lr_value['scheduler'] = get_expon_lr_func(
+                        lr_init=lr_value['lr_init'],
+                        lr_final=lr_value['lr_final'],
+                        lr_delay_steps=lr_value['lr_delay_steps'],
+                        lr_delay_mult=lr_value['lr_delay_mult'],
+                        max_steps=lr_value['max_steps']
+                    )
+                self.opt_lr[group_name] = lr_value
+
+    def set_learning_rate(self, optimizer, step):
+        for param_group in optimizer.param_groups:
+            group_name = param_group['name']
+            if group_name in self.opt_lr:
+                lr_value = self.opt_lr[group_name]
+                if type(lr_value)==dict:
+                    lr_value = lr_value['scheduler'](step)
+                param_group['lr'] = lr_value
+                # print("Setting learning rate for group {} to {}".format(group_name, lr_value))
+            else:
+                print("Warning: No learning rate found for group {}".format(group_name))
 
     def create_from_pcd(self, pcd:PointCloud):
         """

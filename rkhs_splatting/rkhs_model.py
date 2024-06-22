@@ -14,7 +14,7 @@ class RKHSModel(GaussModel):
     The scale of all Gaussians is the same in this model
     """
     
-    def __init__(self, sh_degree : int=3, debug=False, trainable=True, scale_trainable=False):
+    def __init__(self, sh_degree : int=3, debug=False, trainable=True, scale_trainable=True):
         super(RKHSModel, self).__init__(sh_degree, debug)
         self._trainable = trainable
         self._scale_trainable = scale_trainable
@@ -24,7 +24,7 @@ class RKHSModel(GaussModel):
 
     @property
     def get_scaling(self):
-        return self._scaling.clip(1e-5)
+        return self._scaling
 
     def set_scaling(self, scaling):
         if self._trainable and self._scale_trainable:
@@ -72,7 +72,18 @@ class RKHSModel(GaussModel):
         self.grad_update_count = self.grad_update_count[mask]
         self._id = torch.arange(self.count.shape[0], device="cuda")
 
-    def create_from_pcd(self, pcd:PointCloud, initial_scaling=0.005):
+    def create_from_pcd(
+            self,
+            pcd:PointCloud,
+            initial_scaling=0.005,
+            xyz_lr_init=1e-2,
+            xyz_lr_final=1e-4,
+            xyz_lr_delay_multi=0.01,
+            xyz_lr_max_steps=10000,
+            features_lr=3e-3,
+            opacity_lr=3e-3,
+            scaling_lr=1e-5
+        ):
         """
             create the guassian model from a color point cloud
         """
@@ -107,12 +118,12 @@ class RKHSModel(GaussModel):
             self._xyz = nn.Parameter(fused_point_cloud)
             self._features = nn.Parameter(torch.tensor(np.asarray(colors), device="cuda").float())
             self._opacity = nn.Parameter(opacities)
-            parameters.append({'name': 'xyz', 'params': [self._xyz], 'lr': 1e-2})#1e-2
-            parameters.append({'name': 'features', 'params': [self._features], 'lr': 3e-3})#3e-3
-            parameters.append({'name': 'opacity', 'params': [self._opacity], 'lr': 3e-3})#3e-3
+            parameters.append({'name': 'xyz', 'params': [self._xyz]})
+            parameters.append({'name': 'features', 'params': [self._features]})
+            parameters.append({'name': 'opacity', 'params': [self._opacity]})
             if self._scale_trainable:
                 self._scaling = nn.Parameter(scales)
-                parameters.append({'name': 'scaling', 'params': [self._scaling], 'lr': 1e-5})#1e-4
+                parameters.append({'name': 'scaling', 'params': [self._scaling]})
             else:
                 self._scaling = scales
         else:
@@ -122,13 +133,25 @@ class RKHSModel(GaussModel):
             self._scaling = scales
 
         self.opt_parameters = parameters
+        self.update_learning_rate({
+            'xyz': {
+                'lr_init': 1e-2,
+                'lr_final': 1e-4,
+                'lr_delay_steps': 0,
+                'lr_delay_mult': 1,
+                'max_steps': 10000
+            },
+            'features': 3e-3,
+            'opacity': 3e-3,
+            'scaling': 1e-5
+        })
 
         self._id = torch.arange(fused_point_cloud.shape[0], device="cuda")
         self.count = torch.zeros((self._xyz.shape[0]), device="cuda")
-        self.grad_sum = torch.zeros((self._xyz.shape[0]), device="cuda")
-        self.grad_update_count = torch.zeros((self._xyz.shape[0]), device="cuda")
+        self.reset_densification_stats()
 
         return self
+
 
     def to_pc(self):
         N = self._xyz.shape[0]
@@ -184,30 +207,36 @@ class RKHSModel(GaussModel):
         self._id = torch.arange(self.count.shape[0], device="cuda")
 
     def add_densification_stats(self):
-        curr_grad = self.get_xyz.grad.norm(dim=-1)
+        # curr_grad = self.get_xyz.grad.norm(dim=-1)
+        curr_grad = self.get_scaling.grad.abs()
         self.grad_sum += curr_grad
         self.grad_update_count += 1
+
+    def reset_densification_stats(self):
+        self.grad_sum = torch.zeros((self._xyz.shape[0]), device="cuda")
+        self.grad_update_count = torch.zeros((self._xyz.shape[0]), device="cuda")
+
     
     def densify(
             self,
             optimizer,
             world_extent=1,
             max_screen_size=20,
-            grad_threshold=1e-3,#1e-3
-            dense_percent=0.3,#0.3
-            split_num=2,
+            grad_threshold=1e-5,
+            dense_percent=0.1,
+            n_repeat=2,
         ):
         # mask
-        avg_grad = self.grad_sum/self.grad_update_count
-        # ic(avg_grad)
+        avg_grad = self.grad_sum/self.grad_update_count *optimizer.param_groups[3]['lr']
+        ic(avg_grad.median(), avg_grad.mean(), avg_grad.max(), avg_grad.min())
         # dense_threshold = 0
         dense_threshold = dense_percent * world_extent
         large_grad_mask = avg_grad > grad_threshold
         split_mask = large_grad_mask & (self.get_scaling > dense_threshold)
         clone_mask = large_grad_mask & (self.get_scaling <= dense_threshold)
         # split
-        N = split_num
-        stds = self.get_scaling[split_mask].unsqueeze(-1).repeat(N,3)
+        N = n_repeat
+        stds = self.get_scaling[split_mask].clip(1e-5).unsqueeze(-1).repeat(N,3)
         means = torch.zeros_like(stds, device="cuda")
         samples = torch.normal(mean=means, std=stds)
         new_xyz = samples + self.get_xyz[split_mask].repeat(N, 1)
@@ -215,7 +244,7 @@ class RKHSModel(GaussModel):
         new_features = self.get_features[split_mask].repeat(N, 1)
         new_opacity = self.get_opacity[split_mask].repeat(N, 1)
         # clone
-        stds = self.get_scaling[clone_mask].unsqueeze(-1).repeat(1,3)
+        stds = self.get_scaling[clone_mask].clip(1e-5).unsqueeze(-1).repeat(1,3)*0.1
         means = torch.zeros_like(stds, device="cuda")
         # ic(stds)
         samples = torch.normal(mean=means, std=stds)
@@ -234,9 +263,11 @@ class RKHSModel(GaussModel):
         self.densification_postfix(new_points_dict, optimizer)
         # ic(self.get_xyz.shape[0])
         # prune
-        S = torch.count_nonzero(split_mask==True)
-        C = torch.count_nonzero(clone_mask==True)
-        ic(S,C)
-        prune_mask = torch.cat([~split_mask, torch.ones(S*N+C, device="cuda", dtype=bool)])
+        n_split = int(torch.count_nonzero(split_mask==True))
+        n_clone = int(torch.count_nonzero(clone_mask==True))
+        ic(n_split,n_clone)
+        prune_mask = torch.cat([~split_mask, torch.ones(n_split*n_repeat+n_clone, device="cuda", dtype=bool)])
         self.prune_points(prune_mask, optimizer)
         # ic(self.get_xyz.shape[0])
+        # reset stats
+        self.reset_densification_stats()

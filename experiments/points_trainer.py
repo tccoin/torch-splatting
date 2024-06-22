@@ -42,8 +42,8 @@ class GSSTrainer(Trainer):
         self.tile_size = kwargs.get('tile_size', 64)
         self.outlier_threshold = kwargs.get('outlier_threshold', 0.1)
         self.filtering_interval = kwargs.get('filtering_interval', 50)
+        self.densification_interval = kwargs.get('densification_interval', 50)
         self.rkhs_loss_func = kwargs.get('rkhs_loss_func', loss_utils.rkhs_loss_global_scale)
-        self.densification_interval = 50 #kwargs.get('densification_interval', 100)
     
     def on_train_step(self):
         ### debug
@@ -165,6 +165,7 @@ class GSSTrainer(Trainer):
             # self.tensorboard_writer.add_image('rgb/render', out['render'], self.step)
 
         self.opt.zero_grad()
+        self.model.set_learning_rate(self.opt, self.step)
 
         return total_loss, log_dict
     
@@ -184,7 +185,7 @@ class GSSTrainer(Trainer):
             self.model.prune_points(inlier_mask, self.opt)
             self.model.reset_id_and_count()
 
-        if self.step>0 and self.step % self.densification_interval == 0:
+        if self.step>0 and self.step+1<self.train_num_steps and self.step % self.densification_interval == 0:
             self.model.densify(self.opt)
 
     def on_evaluate_step(self, **kwargs):
