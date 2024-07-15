@@ -207,8 +207,8 @@ class RKHSModel(GaussModel):
         self._id = torch.arange(self.count.shape[0], device="cuda")
 
     def add_densification_stats(self):
-        # curr_grad = self.get_xyz.grad.norm(dim=-1)
-        curr_grad = self.get_scaling.grad.abs()
+        curr_grad = self.get_xyz.grad.norm(dim=-1)
+        # curr_grad = self.get_scaling.grad.abs()
         self.grad_sum += curr_grad
         self.grad_update_count += 1
 
@@ -222,12 +222,12 @@ class RKHSModel(GaussModel):
             optimizer,
             world_extent=1,
             max_screen_size=20,
-            grad_threshold=1e-5,
-            dense_percent=0.1,
+            grad_threshold=1e-6,
+            dense_percent=0.05,
             n_repeat=2,
         ):
         # mask
-        avg_grad = self.grad_sum/self.grad_update_count *optimizer.param_groups[3]['lr']
+        avg_grad = self.grad_sum/self.grad_update_count *optimizer.param_groups[0]['lr'] #3
         ic(avg_grad.median(), avg_grad.mean(), avg_grad.max(), avg_grad.min())
         # dense_threshold = 0
         dense_threshold = dense_percent * world_extent
@@ -236,7 +236,7 @@ class RKHSModel(GaussModel):
         clone_mask = large_grad_mask & (self.get_scaling <= dense_threshold)
         # split
         N = n_repeat
-        stds = self.get_scaling[split_mask].clip(1e-5).unsqueeze(-1).repeat(N,3)
+        stds = self.get_scaling[split_mask].clip(1e-5).unsqueeze(-1).repeat(N,3)*0.1
         means = torch.zeros_like(stds, device="cuda")
         samples = torch.normal(mean=means, std=stds)
         new_xyz = samples + self.get_xyz[split_mask].repeat(N, 1)
@@ -244,7 +244,7 @@ class RKHSModel(GaussModel):
         new_features = self.get_features[split_mask].repeat(N, 1)
         new_opacity = self.get_opacity[split_mask].repeat(N, 1)
         # clone
-        stds = self.get_scaling[clone_mask].clip(1e-5).unsqueeze(-1).repeat(1,3)*0.1
+        stds = self.get_scaling[clone_mask].clip(1e-5).unsqueeze(-1).repeat(1,3)*0.03
         means = torch.zeros_like(stds, device="cuda")
         # ic(stds)
         samples = torch.normal(mean=means, std=stds)
@@ -265,7 +265,8 @@ class RKHSModel(GaussModel):
         # prune
         n_split = int(torch.count_nonzero(split_mask==True))
         n_clone = int(torch.count_nonzero(clone_mask==True))
-        ic(n_split,n_clone)
+        n_map = int(self.get_xyz.shape[0])
+        ic(n_split,n_clone,n_map)
         prune_mask = torch.cat([~split_mask, torch.ones(n_split*n_repeat+n_clone, device="cuda", dtype=bool)])
         self.prune_points(prune_mask, optimizer)
         # ic(self.get_xyz.shape[0])

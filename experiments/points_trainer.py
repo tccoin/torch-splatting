@@ -113,9 +113,7 @@ class GSSTrainer(Trainer):
 
         ### render current frame
         with prof:
-            # min_scaling = torch.scalar_tensor(self.min_scale, device="cuda")
-            # if self.model.get_scaling < min_scaling:
-            #     self.model.set_scaling(min_scaling)
+            self.model.set_scaling(self.model.get_scaling.clip(min=self.min_scale))
             out = self.gauss_render(
                 camera,
                 self.model.get_xyz,
