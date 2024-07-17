@@ -4,7 +4,7 @@ import cv2
 from evo.tools import file_interface
 from spatialmath import *
 import plotly.graph_objects as go
-
+from icecream import ic
 
 class DataLoaderBase():
     def __init__(self, dataset_folder):
@@ -200,6 +200,61 @@ class TartanAirLoader(DataLoaderBase):
 
     def set_odometry(self, traj) -> None:
         self.odom = traj
+
+class TUMLoader(DataLoaderBase):
+    def __init__(self, dataset_folder, depth_folder='depth/', rgb_folder='rgb/'):
+        super().__init__(dataset_folder)
+        self.depth_folder = self._fix_path(depth_folder)
+        self.rgb_folder = self._fix_path(rgb_folder)
+        self.gt_filename = 'groundtruth.txt'
+        self.camera = [525.0, 525.0, 319.5, 239.5]  # fx, fy, cx, cy
+        self.image_size = (640, 480)  # width, height
+        # load file names
+        self.rgb_files = []
+        for root, dirs, files in os.walk(self.dataset_folder+self.rgb_folder):
+            for file in files:
+                if file.endswith('.png'):
+                    self.rgb_files.append(file[:-4])
+        self.depth_files = []
+        for root, dirs, files in os.walk(self.dataset_folder+self.depth_folder):
+            for file in files:
+                if file.endswith('.png'):
+                    self.depth_files.append(file[:-4])
+        self.rgb_files = sorted(self.rgb_files)
+        self.depth_files = sorted(self.depth_files)
+        rgb_timestamp = np.array([float(x) for x in self.rgb_files])
+        depth_timestamp = np.array([float(x) for x in self.depth_files])
+        time_diff = rgb_timestamp.reshape((-1,1)) - depth_timestamp.reshape((1,-1))
+        self.associations = [] # (rgb, depth)
+        if len(self.rgb_files) > len(self.depth_files):
+            min_diff_index = np.argmin(np.abs(time_diff), axis=1)
+            self.associations = [(self.rgb_files[i], self.depth_files[min_diff_index[i]]) for i in range(len(self.rgb_files))]
+        else:
+            min_diff_index = np.argmin(np.abs(time_diff), axis=0)
+            self.associations = [(self.rgb_files[min_diff_index[i]], self.depth_files[i]) for i in range(len(self.depth_files))]
+        self.end_index = len(self.associations) - 1
+
+    def read_current_rgbd(self) -> tuple[np.ndarray, np.ndarray]:
+        association = self.associations[self.curr_index]
+        rgb = cv2.imread(
+            f'{self.dataset_folder}{self.rgb_folder}{association[0]}.png')
+        depth = cv2.imread(
+            f'{self.dataset_folder}{self.depth_folder}{association[1]}.png', cv2.IMREAD_ANYDEPTH)/5000
+        depth = np.where(depth==0, 100, depth)
+        return (rgb, depth)
+
+    def read_current_ground_truth(self) -> SE3:
+        return self.gt[self.curr_index]
+
+    def load_ground_truth(self) -> None:
+        poses = self._load_traj('tum', self.gt_filename)
+        gt = []
+        for t in poses.data:
+            gt.append(SE3(t))
+        self.gt = SE3(gt)
+
+    def set_ground_truth(self, traj) -> None:
+        self.gt = traj
 
 def load_dataset(params):
     if params['dataset']['type'] == 'tartanair':

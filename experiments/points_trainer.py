@@ -25,7 +25,7 @@ class GSSTrainer(Trainer):
         # self.input_model.set_scaling(self.model.get_scaling)
         self.gauss_render = kwargs.get('renderer')
         self.lambda_dssim = 0.2
-        self.lambda_depth = 0.0
+        self.lambda_depth = 0.1
         # create a file self.results_folder / f'eval.csv'
         with open(self.results_folder / 'eval.csv', 'w') as f:
             f.write('iter,loss,total,l1,ssim,depth,psnr\n')
@@ -59,20 +59,20 @@ class GSSTrainer(Trainer):
             rgb = self.data['rgb'][ind]
             depth = self.data['depth'][ind]
             alpha = self.data['alpha'][ind]
-            mask = (self.data['alpha'][ind] > 0.5)
+            mask = alpha > 0.5
             # render input frame
-            points = get_point_clouds(camera, depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
-            self.input_model.create_from_pcd(points, initial_scaling=self.model.get_scaling)
-            input_frame = self.gauss_render(
-                camera,
-                self.input_model.get_xyz,
-                self.input_model.get_opacity,
-                self.input_model.get_scaling,
-                self.input_model.get_features,
-                mode='train',
-                radii_multiplier=self.radii_multiplier,
-                tile_size=self.tile_size
-            )
+            # points = get_point_clouds(camera, depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
+            # self.input_model.create_from_pcd(points, initial_scaling=self.model.get_scaling)
+            # input_frame = self.gauss_render(
+            #     camera,
+            #     self.input_model.get_xyz,
+            #     self.input_model.get_opacity,
+            #     self.input_model.get_scaling,
+            #     self.input_model.get_features,
+            #     mode='train',
+            #     radii_multiplier=self.radii_multiplier,
+            #     tile_size=self.tile_size
+            # )
         elif self.use_render:
             ind = np.random.choice(len(self.input_frames))
             input_frame = self.input_frames[ind]
@@ -80,7 +80,7 @@ class GSSTrainer(Trainer):
             rgb = input_frame['render'].detach()
             depth = input_frame['depth'].detach()[..., 0]
             alpha = input_frame['alpha'].detach()[..., 0]
-            mask = (alpha[..., 0] < 0.5).detach()
+            mask = (alpha[..., 0] > 0.5).detach()
             # render input frame
             points = get_point_clouds(camera, depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
             # self.input_model.set_scaling(self.model.get_scaling.item())
@@ -103,7 +103,7 @@ class GSSTrainer(Trainer):
             rgb = input_frame['render'].detach()
             depth = input_frame['depth'].detach()[..., 0]
             alpha = input_frame['alpha'].detach()[..., 0]
-            mask = (alpha[..., 0] < 0.5).detach()
+            mask = (alpha[..., 0] > 0.5).detach()
 
         ### profiling tools
         if USE_PROFILE:
@@ -131,17 +131,22 @@ class GSSTrainer(Trainer):
 
 
         ### calc rkhs loss
-        rkhs_loss, inner_product_tiles = self.rkhs_loss_func(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb) 
-        self._inner_product_tiles = inner_product_tiles
+        # rkhs_loss, inner_product_tiles = self.rkhs_loss_func(out['tiles'], input_frame['tiles'], rgb, self.model.get_scaling, use_geometry=self.use_rkhs_geo, use_rgb=self.use_rkhs_rgb) 
+        # self._inner_product_tiles = inner_product_tiles
 
         ### calc loss
         l1_loss = loss_utils.l1_loss(out['render'], rgb)
-        depth_loss = loss_utils.l1_loss(out['depth'][..., 0][mask], depth[mask])
+        out_depth = out['depth']
+        # out_depth = out['depth'].clip(min=1)
+        out_alpha = out['alpha'].clip(min=0.001)
+        out_expected_depth = (out_depth/out_alpha)[..., 0]
+        depth_loss = loss_utils.l1_loss(out_expected_depth[mask], depth[mask])
         ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb)
-        rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
+        # rkhs_loss_total = rkhs_loss[0] + rkhs_loss[1] - 2*rkhs_loss[2]
         # rkhs_loss_total = rkhs_loss[0]-2*rkhs_loss[2]
         # rkhs_loss_total = -2*rkhs_loss[2]
-        total_loss = rkhs_loss_total
+        # total_loss = rkhs_loss_total
+        total_loss = (1-self.lambda_dssim) * l1_loss + self.lambda_dssim * ssim_loss + depth_loss * self.lambda_depth
         psnr = utils.img2psnr(out['render'], rgb)
         log_dict = {'total': total_loss,'l1':l1_loss, 'ssim': ssim_loss, 'depth': depth_loss, 'psnr': psnr}
 
@@ -169,19 +174,19 @@ class GSSTrainer(Trainer):
     
     def after_backward_step(self):
         out = self._out
-        inner_product_tiles = self._inner_product_tiles
+        # inner_product_tiles = self._inner_product_tiles
         ### densify points
         # @TODO: share prune mask
         self.model.add_densification_stats()
 
         ### remove points with small inner product
-        scores = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
-        count_mask = scores > self.outlier_threshold
-        self.model.add_count(count_mask)
-        if self.step>0 and self.step % self.filtering_interval == 0:
-            inlier_mask = self.model.get_count>0
-            self.model.prune_points(inlier_mask, self.opt)
-            self.model.reset_id_and_count()
+        # scores = loss_utils.check_rkhs_loss(self.model.get_xyz.shape[0], out['tiles']['id'], inner_product_tiles)
+        # count_mask = scores > self.outlier_threshold
+        # self.model.add_count(count_mask)
+        # if self.step>0 and self.step % self.filtering_interval == 0:
+        #     inlier_mask = self.model.get_count>0
+        #     self.model.prune_points(inlier_mask, self.opt)
+        #     self.model.reset_id_and_count()
 
         if self.step>0 and self.step+1<self.train_num_steps and self.step % self.densification_interval == 0:
             self.model.densify(self.opt)
@@ -217,7 +222,10 @@ class GSSTrainer(Trainer):
         )
         rgb_pd = out['render'].detach().cpu().numpy()
         depth_pd = out['depth'].detach().cpu().numpy()[..., 0]
-        depth = np.concatenate([depth, depth_pd], axis=1)
+        out_depth = out['depth'].clip(min=1)
+        out_alpha = out['alpha'].clip(min=0.001)
+        out_expected_depth = (out_depth/out_alpha).detach().cpu().numpy()[..., 0]
+        depth = np.concatenate([depth, out_expected_depth], axis=1).clip(max=3)
         depth = depth / depth.max()
         depth = plt.get_cmap('Greys')(depth)[..., :3]
 

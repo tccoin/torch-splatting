@@ -222,12 +222,12 @@ class RKHSModel(GaussModel):
             optimizer,
             world_extent=1,
             max_screen_size=20,
-            grad_threshold=1e-6,
-            dense_percent=0.05,
+            grad_threshold=5e-3,
+            dense_percent=0.01,
             n_repeat=2,
         ):
         # mask
-        avg_grad = self.grad_sum/self.grad_update_count *optimizer.param_groups[0]['lr'] #3
+        avg_grad = self.grad_sum/self.grad_update_count #optimizer.param_groups[0]['lr']
         ic(avg_grad.median(), avg_grad.mean(), avg_grad.max(), avg_grad.min())
         # dense_threshold = 0
         dense_threshold = dense_percent * world_extent
@@ -236,7 +236,7 @@ class RKHSModel(GaussModel):
         clone_mask = large_grad_mask & (self.get_scaling <= dense_threshold)
         # split
         N = n_repeat
-        stds = self.get_scaling[split_mask].clip(1e-5).unsqueeze(-1).repeat(N,3)*0.1
+        stds = self.get_scaling[split_mask].clip(1e-5).unsqueeze(-1).repeat(N,3)
         means = torch.zeros_like(stds, device="cuda")
         samples = torch.normal(mean=means, std=stds)
         new_xyz = samples + self.get_xyz[split_mask].repeat(N, 1)
@@ -244,7 +244,7 @@ class RKHSModel(GaussModel):
         new_features = self.get_features[split_mask].repeat(N, 1)
         new_opacity = self.get_opacity[split_mask].repeat(N, 1)
         # clone
-        stds = self.get_scaling[clone_mask].clip(1e-5).unsqueeze(-1).repeat(1,3)*0.03
+        stds = self.get_scaling[clone_mask].clip(1e-5).unsqueeze(-1).repeat(1,3)*0.01
         means = torch.zeros_like(stds, device="cuda")
         # ic(stds)
         samples = torch.normal(mean=means, std=stds)

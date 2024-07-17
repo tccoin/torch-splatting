@@ -19,7 +19,7 @@ def create_pc(data):
     pc = PointCloud(pc_coords, pc_channels)
     return pc
 
-def create_camera(fx,fy,cx,cy,c2w):
+def create_camera(fx,fy,cx,cy,c2w,w=640,h=480):
     intrinsic = np.eye(4)
     intrinsic[0,0] = fx
     intrinsic[1,1] = fy
@@ -27,7 +27,7 @@ def create_camera(fx,fy,cx,cy,c2w):
     intrinsic[1,2] = cy
     intrinsic = intrinsic.reshape(-1)
     c2w = np.array(c2w).reshape(-1)
-    camera_data = np.array([cy*2, cx*2, *intrinsic, *c2w], dtype=np.float32)
+    camera_data = np.array([h, w, *intrinsic, *c2w], dtype=np.float32)
     return torch.tensor(camera_data).cuda()
 
 def create_dataset(pc, camera_data, model, renderer):
@@ -112,23 +112,33 @@ def load_sample_dataset(folder, frame_ranges, resize_factor=0.5):
 def load_custom_dataset(dataset, frame_ranges, resize_factor=1):
     train_pcs = []
     cameras = []
+    data = {
+        'camera': [],
+        'rgb': [],
+        'depth': [],
+        'alpha': []
+    }
     dataset.load_ground_truth()
     for i in range(*frame_ranges):
         dataset.set_curr_index(i)
         rgb, depth = dataset.read_current_rgbd()
         rgb = rgb[:,:,::-1]/255
         depth = depth[:,:,np.newaxis]
-        alpha = np.where(depth<100, 1., 0.)
+        alpha = np.where(depth<50, 1., 0.)
         W, H = dataset.image_size
         new_size = (int(W*resize_factor), int(H*resize_factor))
         cv2.resize(alpha, new_size, interpolation=cv2.INTER_CUBIC)
         rgb, depth, alpha = [cv2.resize(x, new_size, interpolation=cv2.INTER_CUBIC) for x in [rgb, depth, alpha]]
-        rgb, depth, alpha = [torch.tensor(x).squeeze().cuda() for x in [rgb, depth, alpha]]
+        rgb, depth, alpha = [torch.tensor(x, dtype=torch.float).squeeze().cuda() for x in [rgb, depth, alpha]]
         c2w = dataset.read_current_ground_truth()
         camera_intrinsics = [x*resize_factor for x in dataset.camera]
-        camera_data = create_camera(*camera_intrinsics, c2w)
+        camera_data = create_camera(*camera_intrinsics, c2w, w=new_size[0], h=new_size[1])
         camera = to_viewpoint_camera(camera_data)
         train_pc = get_point_clouds(camera, depth.unsqueeze(0), alpha.unsqueeze(0), rgb.unsqueeze(0))
         train_pcs.append(train_pc)
         cameras.append(camera)
-    return train_pcs, cameras
+        data['camera'].append(camera_data)
+        data['rgb'].append(rgb)
+        data['depth'].append(depth)
+        data['alpha'].append(alpha)
+    return train_pcs, cameras, data
