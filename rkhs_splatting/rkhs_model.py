@@ -152,6 +152,19 @@ class RKHSModel(GaussModel):
 
         return self
 
+    def save_to(self, path, note=''):
+        if note != '':
+            note = ', ' + note
+        header = f"RKHS_isotropic{note}, format: x, y, z, r, g, b, opacity, scaling\n"
+        with open(path, 'w+') as f:
+            f.write(header)
+            for i in range(self.get_xyz.shape[0]):
+                for j in range(3):
+                    f.write(f"{self.get_xyz[i,j].item()} ")
+                for j in range(3):
+                    f.write(f"{self.get_features[i,j].item()} ")
+                f.write(f"{self.get_opacity[i].item()} {self.get_scaling[i].item()}\n")
+
 
     def to_pc(self):
         N = self._xyz.shape[0]
