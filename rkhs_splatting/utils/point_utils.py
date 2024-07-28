@@ -215,6 +215,29 @@ class PointCloud:
         else:
             np.savez(f, coords=self.coords, **self.channels)
 
+    def save_pcd(self, filename, camera=None):
+        """
+        Save the point cloud to a .pcd file.
+        """
+        if camera is None:
+            pc_width = len(self.coords)
+            pc_height = 1
+            pc_viewpoint = [0, 0, 0, 1, 0, 0, 0]
+        else:
+            pc_width = camera.image_width
+            pc_height = camera.image_height
+            pc_viewpoint = camera.camera_center
+        with open(filename,'w+') as f:
+            # save xyz rgb
+            f.write("VERSION 0.7\n")
+            f.write("FIELDS x y z rgb\n")
+            f.write("SIZE 4 4 4 4\n")
+            f.write("TYPE F F F F\n")
+            f.write("COUNT 1 1 1 1\n")
+            f.write("WIDTH %d\n" % ))
+            f.write("HEIGHT 1\n")
+
+
     def farthest_point_sample(
         self, num_points: int, init_idx: Optional[int] = None, **subsample_kwargs
     ) -> "PointCloud":

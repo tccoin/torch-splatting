@@ -227,11 +227,11 @@ class TUMLoader(DataLoaderBase):
         time_diff = rgb_timestamp.reshape((-1,1)) - depth_timestamp.reshape((1,-1))
         self.associations = [] # (rgb, depth)
         if len(self.rgb_files) > len(self.depth_files):
-            min_diff_index = np.argmin(np.abs(time_diff), axis=1)
-            self.associations = [(self.rgb_files[i], self.depth_files[min_diff_index[i]]) for i in range(len(self.rgb_files))]
-        else:
             min_diff_index = np.argmin(np.abs(time_diff), axis=0)
             self.associations = [(self.rgb_files[min_diff_index[i]], self.depth_files[i]) for i in range(len(self.depth_files))]
+        else:
+            min_diff_index = np.argmin(np.abs(time_diff), axis=1)
+            self.associations = [(self.rgb_files[i], self.depth_files[min_diff_index[i]]) for i in range(len(self.rgb_files))]
         self.end_index = len(self.associations) - 1
 
     def read_current_rgbd(self) -> tuple[np.ndarray, np.ndarray]:
@@ -240,7 +240,6 @@ class TUMLoader(DataLoaderBase):
             f'{self.dataset_folder}{self.rgb_folder}{association[0]}.png')
         depth = cv2.imread(
             f'{self.dataset_folder}{self.depth_folder}{association[1]}.png', cv2.IMREAD_ANYDEPTH)/5000
-        depth = np.where(depth==0, 100, depth)
         return (rgb, depth)
 
     def read_current_ground_truth(self) -> SE3:

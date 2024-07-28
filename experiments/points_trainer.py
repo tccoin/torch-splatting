@@ -28,7 +28,9 @@ class GSSTrainer(Trainer):
         self.lambda_depth = 0.1
         # create a file self.results_folder / f'eval.csv'
         with open(self.results_folder / 'eval.csv', 'w') as f:
-            f.write('iter,loss,total,l1,ssim,depth,psnr\n')
+            f.write('iter,total,l1,ssim,depth,psnr\n')
+        with open(self.results_folder / 'train.csv', 'w') as f:
+            f.write('iter,total,l1,ssim,depth,psnr\n')
         self.writer = kwargs.get('writer', True)
         if self.writer:
             self.tensorboard_writer = SummaryWriter(log_dir=self.results_folder)
@@ -44,7 +46,8 @@ class GSSTrainer(Trainer):
         self.filtering_interval = kwargs.get('filtering_interval', 50)
         self.densification_interval = kwargs.get('densification_interval', 50)
         self.rkhs_loss_func = kwargs.get('rkhs_loss_func', loss_utils.rkhs_loss_global_scale)
-    
+        # self.fixed_positions = kwargs.get('fixed_positions', False)
+
     def on_train_step(self):
         ### debug
         # if self.step==2:
@@ -111,6 +114,9 @@ class GSSTrainer(Trainer):
         else:
             prof = contextlib.nullcontext()
 
+        # if self.fixed_positions:
+        #     self.model.get_xyz.requires_grad = False
+
         ### render current frame
         with prof:
             self.model.set_scaling(self.model.get_scaling.clip(min=self.min_scale))
@@ -150,7 +156,7 @@ class GSSTrainer(Trainer):
         psnr = utils.img2psnr(out['render'], rgb)
         log_dict = {'total': total_loss,'l1':l1_loss, 'ssim': ssim_loss, 'depth': depth_loss, 'psnr': psnr}
 
-        with open(self.results_folder / 'eval.csv', 'a') as f:
+        with open(self.results_folder / 'train.csv', 'a') as f:
             f.write(f'{self.step},{total_loss},{l1_loss},{ssim_loss},{depth_loss},{psnr}\n')
 
         if self.writer:
@@ -194,7 +200,11 @@ class GSSTrainer(Trainer):
     def on_evaluate_step(self, **kwargs):
         import matplotlib.pyplot as plt
         if not self.use_input_frames:
-            ind = np.random.choice(len(self.data['camera']))
+            if self.step==0:
+                # self._evaluation_ind = np.random.choice(len(self.data['camera']))
+                self._evaluation_ind = 0
+            ind = self._evaluation_ind
+            # ind = np.random.choice(len(self.data['camera']))
             camera_data = self.data['camera'][ind]
             rgb = self.data['rgb'][ind].detach().cpu().numpy()
             depth = self.data['depth'][ind].detach().cpu().numpy()
@@ -202,7 +212,10 @@ class GSSTrainer(Trainer):
             # depth[mask] = 0 # set depth for empty area
             camera = to_viewpoint_camera(camera_data)
         else:
-            ind = np.random.choice(len(self.input_frames))
+            if self.step==0:
+                self._evaluation_ind = np.random.choice(len(self.data['camera']))
+            ind = self._evaluation_ind
+            # ind = np.random.choice(len(self.input_frames))
             input_frame = self.input_frames[ind]
             camera = input_frame['camera']
             rgb = input_frame['render'].detach().cpu().numpy()
@@ -220,6 +233,31 @@ class GSSTrainer(Trainer):
             radii_multiplier=self.radii_multiplier,
             tile_size=self.tile_size
         )
+
+        ### calc loss
+        rgb_torch = torch.from_numpy(rgb).to(out['render'].device)
+        depth_torch = torch.from_numpy(depth).to(out['render'].device)
+        l1_loss = loss_utils.l1_loss(out['render'], rgb_torch)
+        out_depth = out['depth']
+        out_alpha = out['alpha'].clip(min=0.001)
+        out_expected_depth = (out_depth/out_alpha)[..., 0]
+        mask = (out_alpha[..., 0] > 0.5).detach()
+        depth_loss = loss_utils.l1_loss(out_expected_depth[mask], depth_torch[mask])
+        ssim_loss = 1.0-loss_utils.ssim(out['render'], rgb_torch)
+        total_loss = (1-self.lambda_dssim) * l1_loss + self.lambda_dssim * ssim_loss + depth_loss * self.lambda_depth
+        psnr = utils.img2psnr(out['render'], rgb_torch)
+
+        with open(self.results_folder / 'eval.csv', 'a') as f:
+            f.write(f'{self.step},{total_loss},{l1_loss},{ssim_loss},{depth_loss},{psnr}\n')
+
+        if self.writer:
+            self.tensorboard_writer.add_scalar('eval_loss/total', total_loss, self.step)
+            self.tensorboard_writer.add_scalar('eval_loss/l1', l1_loss, self.step)
+            self.tensorboard_writer.add_scalar('eval_loss/ssim', ssim_loss, self.step)
+            self.tensorboard_writer.add_scalar('eval_loss/depth', depth_loss, self.step)
+            self.tensorboard_writer.add_scalar('eval_loss/psnr', psnr, self.step)
+
+        # save images
         rgb_pd = out['render'].detach().cpu().numpy()
         depth_pd = out['depth'].detach().cpu().numpy()[..., 0]
         out_depth = out['depth'].clip(min=1)
@@ -241,10 +279,9 @@ class GSSTrainer(Trainer):
 
         image = np.concatenate([rgb, rgb_pd], axis=1)
         image = np.concatenate([image, depth], axis=0)
-        utils.imwrite(str(self.results_folder / f'image-{self.step}.png'), image)
+        if self.step==0:
+            steps_folder = self.results_folder / 'steps'
+            steps_folder.mkdir(parents=True, exist_ok=True)
+            utils.imwrite(str(self.results_folder / f'image-initial.png'), image)
+        utils.imwrite(str(self.results_folder / f'steps/image-{self.step}.png'), image)
         utils.imwrite(str(self.results_folder / f'image-latest.png'), image)
-
-        if self.step == 0:
-            utils.imwrite(str(self.results_folder / f'image-gt-rgbd.png'), image[:,:256])
-            utils.imwrite(str(self.results_folder / f'image-initial-rgbd.png'), image[:,256:])
-        utils.imwrite(str(self.results_folder / f'image-latest-rgbd.png'), image[:,256:])

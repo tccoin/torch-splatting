@@ -202,13 +202,13 @@ class RKHSRenderer(nn.Module):
         empty1d = torch.empty(0,1,device='cuda')
         empty2d = torch.empty(0,2,device='cuda')
         empty3d = torch.empty(0,3,device='cuda')
-        self.mean2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
-        self.scale2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
-        self.scale3d_tile = {v:{u:empty for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
-        self.mean3d_tile = {v:{u:empty3d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
-        self.label_tile = {v:{u:[empty3d,empty1d,empty1d] for u in range(w_tile)} for v in range(h_tile)} # h,w,n,5 (3 for RGB, 1 for depth, 1 for opacity)
-        if point_ids is not None:
-            self.id_tile = {v:{u:empty1d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,1
+        # self.mean2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
+        # self.scale2d_tile = {v:{u:empty2d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,2
+        # self.scale3d_tile = {v:{u:empty for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
+        # self.mean3d_tile = {v:{u:empty3d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,3
+        # self.label_tile = {v:{u:[empty3d,empty1d,empty1d] for u in range(w_tile)} for v in range(h_tile)} # h,w,n,5 (3 for RGB, 1 for depth, 1 for opacity)
+        # if point_ids is not None:
+        #     self.id_tile = {v:{u:empty1d for u in range(w_tile)} for v in range(h_tile)} # h,w,n,1
 
         for v in range(0, camera.image_height, tile_size):
             for u in range(0, camera.image_width, tile_size):
@@ -229,13 +229,13 @@ class RKHSRenderer(nn.Module):
                 sorted_opacity = opacity[in_mask][index]
                 sorted_color = color[in_mask][index]
 
-                if point_ids is not None:
-                    self.id_tile[v//tile_size][u//tile_size] = point_ids[in_mask][index]
-                self.mean3d_tile[v//tile_size][u//tile_size] = means3d[in_mask][index]
-                self.mean2d_tile[v//tile_size][u//tile_size] = sorted_means2D
-                self.scale2d_tile[v//tile_size][u//tile_size] = sorted_scale2d
-                self.scale3d_tile[v//tile_size][u//tile_size] = scale3d[in_mask][index]
-                self.label_tile[v//tile_size][u//tile_size] = [sorted_color, sorted_depths, sorted_opacity]
+                # if point_ids is not None:
+                #     self.id_tile[v//tile_size][u//tile_size] = point_ids[in_mask][index]
+                # self.mean3d_tile[v//tile_size][u//tile_size] = means3d[in_mask][index]
+                # self.mean2d_tile[v//tile_size][u//tile_size] = sorted_means2D
+                # self.scale2d_tile[v//tile_size][u//tile_size] = sorted_scale2d
+                # self.scale3d_tile[v//tile_size][u//tile_size] = scale3d[in_mask][index]
+                # self.label_tile[v//tile_size][u//tile_size] = [sorted_color, sorted_depths, sorted_opacity]
 
                 if not tiles_only:
                     dx = (tile_coord[:,None,:] - sorted_means2D[None,:]) # B P 2
@@ -249,19 +249,19 @@ class RKHSRenderer(nn.Module):
                     self.render_depth[v:v+tile_size, u:u+tile_size] = tile_depth.reshape(tile_size, tile_size, -1)
                     self.render_alpha[v:v+tile_size, u:u+tile_size] = acc_alpha.reshape(tile_size, tile_size, -1)
 
-        tile_data = {
-            "mean2d": self.mean2d_tile,
-            "scale2d": self.scale2d_tile,
-            "scale3d": self.scale3d_tile,
-            "mean3d": self.mean3d_tile,
-            "label": self.label_tile
-        }
-        if point_ids is not None:
-            tile_data['id'] = self.id_tile
+        # tile_data = {
+        #     "mean2d": self.mean2d_tile,
+        #     "scale2d": self.scale2d_tile,
+        #     "scale3d": self.scale3d_tile,
+        #     "mean3d": self.mean3d_tile,
+        #     "label": self.label_tile
+        # }
+        # if point_ids is not None:
+        #     tile_data['id'] = self.id_tile
 
         if tiles_only:
             return {
-                "tiles": tile_data,
+                # "tiles": tile_data,
                 "camera": camera
             }
         else:
@@ -271,7 +271,7 @@ class RKHSRenderer(nn.Module):
                 "alpha": self.render_alpha,
                 "visiility_filter": radii > 0,
                 "radii": radii,
-                "tiles": tile_data,
+                # "tiles": tile_data,
                 "camera": camera
             }
 

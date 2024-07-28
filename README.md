@@ -9,6 +9,7 @@ pip install imageio accelerate einops matplotlib spatialmath-python icecream pyt
 pip install jupyter ipywidgets widgetsnbextension plotly nbformat
 cd submodules/simple-knn
 pip install .
+# add const float FLT_MAX=3.402823466e+38F; to submodules/simple-knn/simple_knn.cu
 # git clone git@gitlab.inria.fr:bkerbl/simple-knn.git
 ```
 
