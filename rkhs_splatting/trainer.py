@@ -75,7 +75,6 @@ class Trainer(object):
         self.step = 0
 
         self.opt = Adam(self.model.opt_parameters, lr=train_lr, betas=adam_betas)
-        
         if self.accelerator.is_main_process:
             self.results_folder = Path(results_folder)
             self.results_folder.mkdir(exist_ok = True)

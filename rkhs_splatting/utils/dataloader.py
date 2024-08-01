@@ -234,6 +234,14 @@ class TUMLoader(DataLoaderBase):
             self.associations = [(self.rgb_files[i], self.depth_files[min_diff_index[i]]) for i in range(len(self.rgb_files))]
         self.end_index = len(self.associations) - 1
 
+    def get_total_number(self) -> int:
+        '''
+        count number of frames according to number of files in color folder
+        '''
+        dir_path = self.dataset_folder + self.rgb_folder
+        return len([entry for entry in os.listdir(dir_path)
+                    if os.path.isfile(os.path.join(dir_path, entry))])
+
     def read_current_rgbd(self) -> tuple[np.ndarray, np.ndarray]:
         association = self.associations[self.curr_index]
         rgb = cv2.imread(

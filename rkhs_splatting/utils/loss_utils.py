@@ -274,8 +274,11 @@ def check_rkhs_loss(n_points, id_tile, inner_product_tiles):
                 map_point_scores[ids[i]] += tile_point_scores[i]
     return map_point_scores
 
-def l1_loss(prediction, gt):
-    return torch.abs((prediction - gt)).mean()
+def l1_loss(prediction, gt, clip_max=None):
+    if clip_max is None:
+        return torch.abs((prediction - gt)).mean()
+    else:
+        return torch.abs((prediction - gt)).clip(max=clip_max).mean()
 
 def l2_loss(prediction, gt):
     return ((prediction - gt) ** 2).mean()

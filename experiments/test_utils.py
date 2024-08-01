@@ -116,7 +116,8 @@ def load_custom_dataset(dataset, frame_ranges, resize_factor=1):
         'camera': [],
         'rgb': [],
         'depth': [],
-        'alpha': []
+        'alpha': [],
+        # 'sky_mask': []
     }
     dataset.load_ground_truth()
     for i in range(*frame_ranges):
@@ -124,8 +125,9 @@ def load_custom_dataset(dataset, frame_ranges, resize_factor=1):
         rgb, depth = dataset.read_current_rgbd()
         rgb = rgb[:,:,::-1]/255
         depth = depth[:,:,np.newaxis]
+        sky_mask = depth>1000
         alpha = np.ones_like(depth)
-        # alpha = np.where(depth<100, 1., 0.) # remove sky
+        alpha = np.where(depth<1000, 1., 0.) # remove sky
         alpha = np.where(depth>0, alpha, 0.) # remove holes
         W, H = dataset.image_size
         new_size = (int(W*resize_factor), int(H*resize_factor))
@@ -143,4 +145,5 @@ def load_custom_dataset(dataset, frame_ranges, resize_factor=1):
         data['rgb'].append(rgb)
         data['depth'].append(depth)
         data['alpha'].append(alpha)
+        # data['sky_mask'].append(sky_mask)
     return train_pcs, cameras, data

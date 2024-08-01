@@ -4,6 +4,7 @@ from typing import BinaryIO, Dict, List, Optional, Union
 import numpy as np
 from  rkhs_splatting.utils.camera_utils import parse_camera
 from icecream import ic
+from spatialmath.base import r2q
 
 def get_rays_single_image(H, W, intrinsics, c2w, render_stride=1):
         """
@@ -32,7 +33,7 @@ def get_rays_single_image(H, W, intrinsics, c2w, render_stride=1):
         return rays_o, rays_d
 
 
-def get_point_clouds(camera, depths, alphas, rgbs=None):
+def get_point_clouds(camera, depths, alphas, rgbs=None, mask=None):
     """
     depth map to point cloud
     """
@@ -44,7 +45,8 @@ def get_point_clouds(camera, depths, alphas, rgbs=None):
     coords = []
     rgbas = []
     rays_o, rays_d = get_rays_single_image(H=H, W=W, intrinsics=intrinsics, c2w=c2ws)
-    mask = (alphas.flatten(1) == 1)
+    if mask is None:
+        mask = (alphas.flatten(1) == 1)
     pts = rays_o + rays_d * depths.flatten(1).unsqueeze(-1)
     rgbas = torch.cat([rgbs, alphas.unsqueeze(-1)], dim=-1)
     coords = pts[mask].cpu().numpy()
@@ -219,14 +221,17 @@ class PointCloud:
         """
         Save the point cloud to a .pcd file.
         """
+        pc_width = len(self.coords)
+        pc_height = 1
         if camera is None:
-            pc_width = len(self.coords)
-            pc_height = 1
             pc_viewpoint = [0, 0, 0, 1, 0, 0, 0]
         else:
-            pc_width = camera.image_width
-            pc_height = camera.image_height
-            pc_viewpoint = camera.camera_center
+            c2w = camera.c2w.cpu().numpy()
+            tmp = c2w[:3, :3].T
+            w2c_quat = r2q(c2w[:3, :3].T)
+            pc_viewpoint = np.concatenate([-1*c2w[:3, 3], w2c_quat])
+        rgb = (self.select_channels(["R", "G", "B"])*255).astype(np.uint8)
+        coords = self.coords
         with open(filename,'w+') as f:
             # save xyz rgb
             f.write("VERSION 0.7\n")
@@ -234,9 +239,13 @@ class PointCloud:
             f.write("SIZE 4 4 4 4\n")
             f.write("TYPE F F F F\n")
             f.write("COUNT 1 1 1 1\n")
-            f.write("WIDTH %d\n" % ))
-            f.write("HEIGHT 1\n")
-
+            f.write("WIDTH %d\n" % pc_width)
+            f.write("HEIGHT %d\n" % pc_height)
+            f.write("VIEWPOINT %f %f %f %f %f %f %f\n" % tuple(pc_viewpoint))
+            f.write("POINTS %d\n" % pc_width)
+            f.write("DATA ascii\n")
+            for i in range(pc_width):
+                f.write("%f %f %f %d\n" % (coords[i, 0], coords[i, 1], coords[i, 2], rgb[i, 0]*256*256 + rgb[i, 1]*256 + rgb[i, 2]))
 
     def farthest_point_sample(
         self, num_points: int, init_idx: Optional[int] = None, **subsample_kwargs
@@ -275,6 +284,30 @@ class PointCloud:
             indices[i] = idx
             cur_dists = np.minimum(cur_dists, compute_dists(idx))
         return self.subsample(indices, **subsample_kwargs)
+
+    def voxel_sample(self, voxel_size: float) -> "PointCloud":
+        """
+        Sample a subset of the point cloud by voxelizing the space.
+
+        :param voxel_size: the size of each voxel.
+        :param subsample_kwargs: arguments to self.subsample().
+        :return: a reduced PointCloud.
+        """
+        import open3d as o3d
+        rgb = self.select_channels(["R", "G", "B"])
+        pcd = o3d.t.geometry.PointCloud(self.coords)
+        pcd.point.colors = rgb
+        downpcd = pcd.voxel_down_sample(voxel_size)
+        new_coords = np.asarray(downpcd.point.positions.numpy())
+        new_rgb = np.asarray(downpcd.point.colors.numpy())
+        return PointCloud(
+            coords=new_coords,
+            channels={
+                "R": new_rgb[:, 0],
+                "G": new_rgb[:, 1],
+                "B": new_rgb[:, 2],
+            },
+        ),downpcd
 
     def subsample(self, indices: np.ndarray, average_neighbors: bool = False) -> "PointCloud":
         if not average_neighbors:
